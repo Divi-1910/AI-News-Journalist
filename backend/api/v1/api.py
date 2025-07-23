@@ -1,0 +1,16 @@
+from fastapi import APIRouter
+from api.v1.endpoints import auth
+
+api_router = APIRouter()
+
+api_router.include_router(
+    auth.router, 
+    prefix="/auth", 
+    tags=["Authentication"],
+    responses={
+        401: {"description": "Unauthorized"},
+        403: {"description": "Forbidden"},
+        404: {"description": "Not Found"},
+        500: {"description": "Internal Server Error"}
+    }
+)
