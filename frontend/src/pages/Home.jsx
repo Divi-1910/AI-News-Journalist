@@ -18,7 +18,7 @@ import {
   currentPersonalityAtom,
   showLoginButtonAtom
 } from "../store/AuthStore";
-import { AuthApi } from "../api/api";
+import { AuthApi, handleApiError } from "../api/api";
 
 const Home = () => {
   const [user, setUser] = useAtom(userAtom);
@@ -115,13 +115,15 @@ const Home = () => {
           id: decoded.sub,
           email: decoded.email,
           name: decoded.name,
-          picture: decoded.name
+          picture: decoded.picture
         }
       });
 
       setUser(result.user);
 
-      if (result.isNewUser || !result.user.onBoardingCompleted) {
+      setUser(result.user);
+
+      if (result.isNewUser || !result.user.onboarding_completed) {
         window.location.href = "/preferences";
       } else {
         window.location.href = "/chat";

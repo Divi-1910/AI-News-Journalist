@@ -1,58 +1,78 @@
-from typing import Optional, List 
-import os 
-from pathlib import Path 
+from pydantic_settings import BaseSettings
+from typing import List, Optional
+import os
+from pathlib import Path
 
+# Get the base directory
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-class Settings:
-    """ Application Settings and Configuration """
+class Settings(BaseSettings):
+    """Application settings and configuration"""
     
-    # Basic APP Info 
-    APP_NAME = "Anya"
-    APP_VERSION = "1.0.0"
-    APP_DESCRIPTION = "Backend API for Anya"
+    # Basic App Info
+    APP_NAME: str = "Anya"
+    APP_VERSION: str = "1.0.0"
+    APP_DESCRIPTION: str = "Backend API for Anya"
     
-    ENVIRONMENT = "development"
-    DEBUG = True
+    # Environment
+    ENVIRONMENT: str = "development"
+    DEBUG: bool = True
     
-    # Database Settings
-    MONGODB_URL = "mongodb://localhost:27017"
-    MONGODB_NAME = "Anya"
+    # Database Configuration
+    MONGODB_URL: str = "mongodb://localhost:27017"
+    MONGODB_NAME: str = "Anya"
     
-    GOOGLE_CLIENT_ID = "dummy_client_id"
-    JWT_SECRET_KEY = "dummy_secret_key"
-    JWT_ALGORITHM = "HS256"
-    ACCESS_TOKEN_EXPIRE_DAYS = 7
+    # Authentication Configuration
+    GOOGLE_CLIENT_ID: str = "dummy_client_id"
+    JWT_SECRET_KEY: str = "dummy_secret_key"
+    JWT_ALGORITHM: str = "HS256"
+    ACCESS_TOKEN_EXPIRE_DAYS: int = 7
     
-    ALLOWED_ORIGINS = [
+    # CORS Configuration
+    ALLOWED_ORIGINS: List[str] = [
         "http://localhost:5173",
         "http://localhost:3000", 
         "http://127.0.0.1:5173",
         "http://127.0.0.1:3000"
     ]
     
-    REDIS_URL = "redis://localhost:6379"
-    API_VERSION = "v1"
-    API_PREFIX = "/api"
+    # Redis Configuration
+    REDIS_URL: str = "redis://localhost:6379"
     
-    LOG_LEVEL = "INFO"
-    LOG_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    # API Configuration
+    API_VERSION: str = "v1"
+    API_PREFIX: str = "/api"
     
-    SECRET_KEY = "dummy_secret_key"
+    # Logging Configuration
+    LOG_LEVEL: str = "INFO"
+    LOG_FORMAT: str = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
     
-    WORKFLOW_MANAGER_URL = "http://localhost:8080"
+    # Security
+    SECRET_KEY: str = "dummy_secret_key"
+    
+    # External Services
+    WORKFLOW_MANAGER_URL: str = "http://localhost:8080"
+    
+    class Config:
+        env_file = os.path.join(BASE_DIR, ".env")
+        env_file_encoding = "utf-8"
+        case_sensitive = True
         
-    def is_development(self):
+    def is_development(self) -> bool:
+        """Check if running in development mode"""
         return self.ENVIRONMENT.lower() in ["development", "dev", "local"]
     
-    def is_production(self):
+    def is_production(self) -> bool:
+        """Check if running in production mode"""
         return self.ENVIRONMENT.lower() in ["production", "prod"]
-    
-    def get_database_url(self):
+        
+    def get_database_url(self) -> str:
+        """Get the complete database URL"""
         return f"{self.MONGODB_URL}/{self.MONGODB_NAME}"
-    
+
+# Create global settings instance
 settings = Settings()
 
 # Set SECRET_KEY from JWT_SECRET_KEY if not provided
-if settings.JWT_SECRET_KEY:
+if settings.JWT_SECRET_KEY and settings.JWT_SECRET_KEY != "dummy_secret_key":
     settings.SECRET_KEY = settings.JWT_SECRET_KEY

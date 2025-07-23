@@ -47,42 +47,41 @@ class AuthService:
     
     @staticmethod
     async def get_or_create_user(google_user_info : Dict[str , Any]) -> Tuple[User, bool]:
-        """ Get Exisiting User or create a new One (Just in Time Registration ) 
-        
-            Args :
-                google_user_info : Dict containing verified user information from Google
-                
-            Returns : 
-                Tuple of (User Object , is_new_user boolean) 
-                
-            Raises : 
-                HTTPException : If database operations fail 
-                
-        """
-        
+        """ Get Existing User or create a new One (Just in Time Registration ) """
+    
         try:
             db = get_database()
             users_collection = db.users
             google_id = google_user_info["id"]
-            
+        
             existing_user = await users_collection.find_one({"google_id": google_id})
             
             if existing_user:
                 logger.info(f"User already exists : {google_user_info.get('email')}")
-                await users_collection.update_one( {"_id": existing_user["_id"]},
+                await users_collection.update_one( 
+                    {"_id": existing_user["_id"]},
                     {
                         "$set": {
                             "last_login": datetime.utcnow(),
                             "updated_at": datetime.utcnow()
                         }
-                    })
-                existing_user["id"] = str(existing_user["_id"])
+                    }
+                )
                 
-                user_data = AuthService._ensure_user_data_completeness(existing_user)
+                # FIXED: Create clean data for Pydantic model
+                user_model_data = existing_user.copy()
+                user_model_data["id"] = str(existing_user["_id"])  # Convert ObjectId to string
+                
+                # CRITICAL FIX: Remove the raw ObjectId field
+                if "_id" in user_model_data:
+                    del user_model_data["_id"]
+                
+                user_data = AuthService._ensure_user_data_completeness(user_model_data)
                 
                 logger.info(f"Existing User logged In : {existing_user.get('profile' , {}).get('email')}")
                 return User(**user_data), False
             
+            # New user creation (this part looks correct)
             new_user_data = {
                 "google_id": google_id,
                 "profile": UserProfile(
@@ -102,16 +101,16 @@ class AuthService:
             }
             
             result = await users_collection.insert_one(new_user_data)
-            new_user_data["id"] = str(result.inserted_id)
-            new_user_data["_id"] = result.inserted_id
+            user_model_data = new_user_data.copy()
+            user_model_data["id"] = str(result.inserted_id)
             
             logger.info(f"New User Registered : {google_user_info['email']}")
-            return User(**new_user_data), True
+            return User(**user_model_data), True
         
         except Exception as e : 
             logger.error(f"Database Error in get_or_create_user: {e}")
             raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to process user data")
-        
+
     
     @staticmethod
     def _ensure_user_data_completeness(user_data: Dict[str, Any]) -> Dict[str , Any]:
@@ -154,35 +153,28 @@ class AuthService:
         
         return user_data
     
-    
     @staticmethod
-    def create_access_token(user_id: str, email: str , additional_claims : Optional[Dict] = None) -> str: 
-        """ 
-            Create a JWT Access token for user 
-            
-            Args : 
-                user_id : User ID
-                email : User Email
-                additional_claims : Additional Claims to be added to the token
-
-            Returns :
-                JWT Access Token Encoded as string 
-        """
-        
+    def create_access_token(user_id: str, email: str, additional_claims: Optional[Dict] = None) -> str: 
         try: 
             expire = datetime.utcnow() + timedelta(days=settings.ACCESS_TOKEN_EXPIRE_DAYS)
             
             to_encode = {
-                "user_id" : user_id,
-                "email" : email,
-                "exp" : expire,
-                "iat" : datetime.utcnow(),
+                "user_id": str(user_id),  
+                "email": str(email),      
+                "exp": expire,
+                "iat": datetime.utcnow(),
                 "iss": settings.APP_NAME,
-                "aud" : "anya-frontend"
+                "aud": "anya-frontend"
             }
             
             if additional_claims:
-                to_encode.update(additional_claims)
+                safe_claims = {}
+                for key, value in additional_claims.items():
+                    if isinstance(value, ObjectId):
+                        safe_claims[key] = str(value)
+                    else:
+                        safe_claims[key] = value
+                to_encode.update(safe_claims)
                 
             encoded_jwt = jwt.encode(to_encode, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
             
@@ -190,9 +182,11 @@ class AuthService:
             return encoded_jwt
         
         except Exception as e: 
-            logger.info(f"Jwt token creation failed : {e}")
+            logger.error(f"JWT token creation failed: {e}") 
             raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to create access token")
-        
+
+    
+    
     @staticmethod
     def verify_token(token : str) -> Dict[str , Any] : 
         """ 
@@ -236,15 +230,6 @@ class AuthService:
     
     @staticmethod
     async def get_user_by_id(user_id: str) -> Optional[User]:
-        """
-        Get user by database ID
-        
-        Args:
-            user_id: User's database ID
-            
-        Returns:
-            User object if found, None otherwise
-        """
         try:
             db = get_database()
             users_collection = db.users
@@ -254,14 +239,22 @@ class AuthService:
             if not user_data:
                 return None
             
-            user_data["id"] = str(user_data["_id"])
-            user_data = AuthService._ensure_user_data_completeness(user_data)
+            # ✅ Create clean data without raw ObjectId
+            user_model_data = user_data.copy()
+            user_model_data["id"] = str(user_data["_id"])
             
-            return User(**user_data)
+            # ✅ Remove raw ObjectId field
+            if "_id" in user_model_data:
+                del user_model_data["_id"]
+            
+            user_data_clean = AuthService._ensure_user_data_completeness(user_model_data)
+            
+            return User(**user_data_clean)
             
         except Exception as e:
-            logger.error(f" Error fetching user by ID {user_id}: {e}")
+            logger.error(f"Error fetching user by ID {user_id}: {e}")
             return None
+
     
     @staticmethod
     async def update_user_last_active(user_id: str):
@@ -291,18 +284,8 @@ class AuthService:
     
     @staticmethod
     def create_user_response(user: User, is_new_user: bool = False) -> UserResponse:
-        """
-        Create UserResponse object from User model
-        
-        Args:
-            user: User model instance
-            is_new_user: Whether this is a newly created user
-            
-        Returns:
-            UserResponse object
-        """
         return UserResponse(
-            id=user.id,
+            id=str(user.id) if user.id else "",  # ✅ Ensure string conversion
             google_id=user.google_id,
             profile=user.profile,
             preferences=user.preferences,

@@ -1,0 +1,14 @@
+services:
+  mongodb:
+    image: mongo
+    container_name: anya_mongodb
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    environment:
+      MONGO_INITDB_DATABASE: Anya
+    restart: unless-stopped
+
+volumes:
+  mongodb_data:

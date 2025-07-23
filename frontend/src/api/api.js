@@ -99,10 +99,25 @@ apiClient.interceptors.response.use(
   }
 );
 
+export const handleApiError = (
+  error,
+  defaultMessage = "An unexpected error occurred"
+) => {
+  if (error.response?.data?.detail) {
+    return error.response.data.detail;
+  }
+
+  if (error.message) {
+    return error.message;
+  }
+
+  return defaultMessage;
+};
+
 export const AuthApi = {
   googleAuth: async (tokenData) => {
     try {
-      const response = await apiClient.post("api/auth/google", tokenData);
+      const response = await apiClient.post("/api/auth/google", tokenData);
 
       if (response.data.success && response.data.token) {
         setAuthToken(response.data.token);
@@ -114,17 +129,17 @@ export const AuthApi = {
 
       return response.data;
     } catch (error) {
-      console.error(` Google Auth Error : ${error}`);
+      console.error(`Google Auth Error: ${error}`);
       throw new Error(error.response?.data?.detail || "Google Auth Failed");
     }
   },
 
   getCurrentUser: async () => {
     try {
-      const response = await apiClient.get("api/auth/me");
+      const response = await apiClient.get("/api/auth/me");
       return response.data;
     } catch (error) {
-      console.error(`Failed to get Current User : `, error);
+      console.error(`Failed to get Current User:`, error);
       throw new Error(
         error.response?.data?.detail || "Failed to fetch user Information"
       );
@@ -138,13 +153,13 @@ export const AuthApi = {
 
   refreshToken: async () => {
     try {
-      const response = await apiClient.post("api/auth/refresh");
+      const response = await apiClient.post("/api/auth/refresh");
       if (response.data.token) {
         setAuthToken(response.data.token);
       }
       return response.data;
     } catch (error) {
-      console.error(`Failed to refresh Token : `, error);
+      console.error(`Failed to refresh Token:`, error);
       removeAuthToken();
       throw new Error(
         error.response?.data?.detail || "Failed to refresh Token"
@@ -152,3 +167,6 @@ export const AuthApi = {
     }
   }
 };
+
+export default apiClient;
+export { getAuthToken, setAuthToken, removeAuthToken, API_BASE_URL };

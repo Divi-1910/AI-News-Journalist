@@ -1,5 +1,5 @@
 fastapi
-uvicorn[standard]
+uvicorn
 motor
 pymongo
 python-jose[cryptography]
@@ -10,3 +10,5 @@ pydantic-settings
 python-dotenv
 redis
 pydantic
+email-validator
+requests

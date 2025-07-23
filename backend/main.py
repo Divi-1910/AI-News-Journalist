@@ -7,6 +7,7 @@ import logging
 import time
 from typing import Dict, Any
 
+# Fixed imports - use absolute imports from the app package
 from core.config import settings
 from core.database import mongodb
 from api.v1.api import api_router
@@ -35,10 +36,10 @@ async def lifespan(app: FastAPI):
         yield  
         
     except Exception as e:
-        logger.error(f"Startup failed: {e}")
+        logger.error(f"❌ Startup failed: {e}")
         raise
     finally:
-        logger.info("Shutting down Anya API...")
+        logger.info("🔄 Shutting down Anya API...")
         await mongodb.disconnect()
         logger.info("👋 Application shutdown completed")
 
@@ -57,7 +58,7 @@ app = FastAPI(
 if settings.is_production():
     app.add_middleware(
         TrustedHostMiddleware, 
-        allowed_hosts=["https://anya.ai"]
+        allowed_hosts=["yourdomain.com", "www.yourdomain.com"]
     )
 
 # CORS middleware
@@ -84,7 +85,7 @@ async def add_process_time_header(request: Request, call_next):
     response.headers["X-Request-ID"] = request_id
     
     # Log slow requests
-    if process_time > 1.0:  # Log requests taking more than 1 second
+    if process_time > 1.0:
         logger.warning(f"⏱️ Slow request: {request.method} {request.url.path} took {process_time:.2f}s")
     
     return response
@@ -135,7 +136,7 @@ app.include_router(
 async def root() -> Dict[str, Any]:
     """Root endpoint - API information"""
     return {
-        "message": "Anya AI News API says welcome",
+        "message": "Anya AI News API says welcome! 🤖📰",
         "version": settings.APP_VERSION,
         "description": settings.APP_DESCRIPTION,
         "docs_url": "/docs" if settings.is_development() else None,
@@ -158,7 +159,7 @@ async def health_check() -> Dict[str, Any]:
             "timestamp": time.time()
         }
     except Exception as e:
-        logger.error(f" Health check failed: {e}")
+        logger.error(f"❌ Health check failed: {e}")
         return {
             "status": "unhealthy",
             "service": "anya-api-gateway",
@@ -178,7 +179,7 @@ if settings.is_development():
             "api_version": settings.API_VERSION,
             "allowed_origins": settings.ALLOWED_ORIGINS,
             "jwt_algorithm": settings.JWT_ALGORITHM,
-            "google_client_configured": bool(settings.GOOGLE_CLIENT_ID)
+            "google_client_configured": bool(settings.GOOGLE_CLIENT_ID and settings.GOOGLE_CLIENT_ID != "dummy_client_id")
         }
 
 # Entry point for running with uvicorn
@@ -188,7 +189,7 @@ if __name__ == "__main__":
     uvicorn.run(
         "main:app",
         host="0.0.0.0",
-        port=8080,
+        port=8000,
         reload=settings.is_development(),
         log_level=settings.LOG_LEVEL.lower(),
         access_log=True

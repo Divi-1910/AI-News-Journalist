@@ -1,6 +1,6 @@
-\"\"\" 
+""" 
 Database Models and schemas 
-\"\"\"
+"""
 
 from .user import (
     User ,
