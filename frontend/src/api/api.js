@@ -165,6 +165,22 @@ export const AuthApi = {
         error.response?.data?.detail || "Failed to refresh Token"
       );
     }
+  },
+
+  updateUserPreferences: async (preferences) => {
+    try {
+      const response = await apiClient.put(
+        "/api/users/preferences",
+        preferences
+      );
+      return response.data;
+    } catch (error) {
+      console.error("Failed to update preferences:", error);
+      throw new Error(
+        error.response?.data?.detail ||
+          "Failed to update preferences. Please try again."
+      );
+    }
   }
 };
 

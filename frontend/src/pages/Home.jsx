@@ -32,44 +32,49 @@ const Home = () => {
   // Anya's personality introductions
   const personalities = [
     {
-      id: "analytical_analyst",
-      emoji: "🧠",
-      name: "The Analytical Analyst",
-      intro:
-        "I dissect complex data and market trends to bring you actionable insights.",
-      color: "from-blue-500 to-cyan-500"
+      id: "calm_anchor",
+      emoji: "🎙️",
+      name: "The Calm Anchor",
+      intro: "I deliver news with calm authority and clear, professional tone.",
+      color: "from-blue-500 to-blue-400"
     },
     {
-      id: "charismatic_anchor",
-      emoji: "🎤",
-      name: "The Charismatic Anchor",
+      id: "friendly_explainer",
+      emoji: "😊",
+      name: "The Friendly Explainer",
       intro:
-        "I transform breaking news into compelling stories that captivate and inform.",
-      color: "from-purple-500 to-pink-500"
+        "I explain news like a helpful friend — clear, warm, and relatable.",
+      color: "from-yellow-400 to-amber-300"
     },
     {
-      id: "seasoned_journalist",
-      emoji: "🧓",
-      name: "The Seasoned Journalist",
-      intro:
-        "With decades of experience, I provide historical context to today's headlines.",
-      color: "from-amber-500 to-orange-500"
+      id: "investigative_reporter",
+      emoji: "🕵️",
+      name: "The Investigative Reporter",
+      intro: "I dig deep into facts, connecting dots with sharp analysis.",
+      color: "from-red-500 to-rose-500"
     },
     {
-      id: "curious_explorer",
+      id: "youthful_trendspotter",
       emoji: "✨",
-      name: "The Curious Explorer",
-      intro:
-        "I ask the tough questions and explore the implications behind every story.",
-      color: "from-emerald-500 to-teal-500"
+      name: "The Youthful Trendspotter",
+      intro: "I cover news with a Gen-Z flair — witty, bold, and emoji-packed.",
+      color: "from-pink-500 to-fuchsia-500"
     },
     {
-      id: "witty_intern",
-      emoji: "🤖",
-      name: "The Witty Intern",
+      id: "global_correspondent",
+      emoji: "🌍",
+      name: "The Global Correspondent",
       intro:
-        "I make complex news digestible with humor and relatable explanations.",
-      color: "from-rose-500 to-pink-500"
+        "I bring you stories from across the world with rich context and nuance.",
+      color: "from-green-500 to-emerald-400"
+    },
+    {
+      id: "ai_analyst",
+      emoji: "📊",
+      name: "The AI Analyst",
+      intro:
+        "I break down the news logically — data-driven, objective, and concise.",
+      color: "from-purple-600 to-indigo-500"
     }
   ];
 
