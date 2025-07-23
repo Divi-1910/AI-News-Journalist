@@ -148,7 +148,6 @@ typings/
 # Optional REPL history
 .node_repl_history
 
-# Output of 'npm pack'
 *.tgz
 
 # Yarn Integrity file
@@ -158,12 +157,6 @@ typings/
 .cache
 .parcel-cache
 
-# Next.js build output
-.next
-
-# Nuxt.js build / generate output
-.nuxt
-dist
 
 # Gatsby files
 .cache/
@@ -180,9 +173,6 @@ dist-ssr
 # Rollup.js default build output
 dist/
 
-# ============================================================================
-# GO (Workflow Manager)
-# ============================================================================
 # Binaries for programs and plugins
 *.exe
 *.exe~
@@ -208,9 +198,6 @@ go.sum
 # Air live reload tool
 tmp/
 
-# ============================================================================
-# DATABASES
-# ============================================================================
 # MongoDB
 *.mongodb
 *.db
@@ -231,14 +218,11 @@ dump.rdb
 *.backup
 *.bak
 
-# ============================================================================
-# DOCKER
-# ============================================================================
+
 # Docker Compose override files
 docker-compose.override.yml
 docker-compose.override.yaml
 
-# Docker volumes (if using local volumes)
 data/
 volumes/
 mongodb_data/
@@ -247,9 +231,6 @@ redis_data/
 # Docker logs
 docker-logs/
 
-# ============================================================================
-# LOGS & TEMPORARY FILES
-# ============================================================================
 # Log files
 *.log
 logs/
@@ -263,20 +244,6 @@ temp/
 .tmp/
 .temp/
 
-# OS generated files
-.DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
-Thumbs.db
-.AppleDouble
-.LSOverride
-
-# ============================================================================
-# IDEs & EDITORS
-# ============================================================================
 # VSCode
 .vscode/
 !.vscode/settings.json
@@ -284,16 +251,6 @@ Thumbs.db
 !.vscode/launch.json
 !.vscode/extensions.json
 
-# JetBrains IDEs
-.idea/
-*.iws
-*.iml
-*.ipr
-out/
-
-# Sublime Text
-*.sublime-project
-*.sublime-workspace
 
 # Vim
 *.swp
@@ -313,10 +270,6 @@ tramp
 # Atom
 .atom/
 
-# ============================================================================
-# BUILD ARTIFACTS & GENERATED FILES
-# ============================================================================
-# Build directories
 build/
 dist/
 out/
@@ -333,31 +286,9 @@ api-docs/
 static/
 assets/build/
 
-# ============================================================================
-# TESTING & CI/CD
-# ============================================================================
-# Test results
-test-results/
-test-reports/
-coverage-reports/
 
 # CI/CD artifacts
 .github/workflows/artifacts/
-
-# Terraform
-*.tfstate
-*.tfstate.*
-.terraform/
-.terraform.lock.hcl
-
-# ============================================================================
-# MISCELLANEOUS
-# ============================================================================
-# Backup files
-*.bak
-*.backup
-*.old
-*.orig
 
 # Archive files
 *.zip
@@ -369,9 +300,7 @@ local.conf
 local.yaml
 local.json
 
-# Monitoring and metrics
-metrics/
-monitoring/
+
 
 # SSL certificates
 *.crt
@@ -379,23 +308,9 @@ monitoring/
 *.p12
 *.pfx
 
-# GPG keys
-*.gpg
-*.asc
-
-# ============================================================================
-# PROJECT SPECIFIC
-# ============================================================================
-# Anya specific files
 anya_*.log
 anya_debug.json
 
-# Model files (if you add local AI models later)
-models/
-*.model
-*.bin
-*.onnx
-*.pkl
 
 # Vector database files
 chroma_db/
@@ -409,14 +324,6 @@ article_cache/
 # User uploaded files
 uploads/
 user_data/
-
-# Development tools
-.air.toml
-hot-reload/
-
-# Performance profiling
-*.prof
-*.trace
 
 
 !.env.example
