@@ -17,8 +17,8 @@ import {
 } from "lucide-react";
 import { userAtom } from "../store/AuthStore";
 import { AuthApi } from "../api/api";
+import SettingsDialog from "../components/SettingsDialog";
 
-// This is a common pattern to auto-resize textareas
 const useAutosizeTextArea = (textAreaRef, value) => {
   useEffect(() => {
     if (textAreaRef) {
@@ -37,6 +37,7 @@ const Chat = () => {
   const [isTyping, setIsTyping] = useState(false);
   const messagesEndRef = useRef(null);
   const textAreaRef = useRef(null);
+  const [showSettings, setShowSettings] = useState(false);
   const navigate = useNavigate();
 
   useAutosizeTextArea(textAreaRef.current, inputValue);
@@ -164,7 +165,10 @@ const Chat = () => {
                 {user?.profile?.name}
               </span>
             </div>
-            <button className="p-2 text-gray-300 hover:text-white hover:bg-white/20 rounded-lg transition-colors">
+            <button
+              onClick={() => setShowSettings(true)}
+              className="p-2 text-gray-300 hover:text-white hover:bg-white/20 rounded-lg transition-colors"
+            >
               <Settings className="w-5 h-5" />
             </button>
             <button
@@ -317,6 +321,10 @@ const Chat = () => {
           </p>
         </div>
       </footer>
+      <SettingsDialog
+        isOpen={showSettings}
+        onClose={() => setShowSettings(false)}
+      />
     </div>
   );
 };

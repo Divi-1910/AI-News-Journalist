@@ -104,6 +104,10 @@ class AuthService:
             user_model_data = new_user_data.copy()
             user_model_data["id"] = str(result.inserted_id)
             
+            # Remove _id field if it exists
+            if "_id" in user_model_data:
+                del user_model_data["_id"]
+            
             logger.info(f"New User Registered : {google_user_info['email']}")
             return User(**user_model_data), True
         
