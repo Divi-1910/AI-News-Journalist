@@ -30,16 +30,17 @@ class PyObjectId(ObjectId):
 
 class NewsPersonalityEnum(str, Enum):
     """Available news anchor personalities"""
-    ANALYTICAL_ANALYST = "analytical_analyst"
-    CHARISMATIC_ANCHOR = "charismatic_anchor"
-    SEASONED_JOURNALIST = "seasoned_journalist"
-    CURIOUS_EXPLORER = "curious_explorer"
-    WITTY_INTERN = "witty_intern"
+    CALM_ANCHOR = "calm-anchor"
+    FRIENDLY_EXPLAINER = "friendly-explainer"
+    INVESTIGATIVE_REPORTER = "investigative-reporter"
+    YOUTHFUL_TRENDSPOTTER = "youthful-trendspotter"
+    GLOBAL_CORRESPONDENT = "global-correspondent"
+    AI_ANALYST="ai-analyst"
 
 class ContentLengthEnum(str, Enum):
     """Content length preferences"""
     SHORT = "short"
-    MEDIUM = "medium"
+    MEDIUM = "medium"   
     DETAILED = "detailed"
 
 class UserPreferences(BaseModel):
