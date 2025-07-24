@@ -130,7 +130,7 @@ const Preferences = () => {
   };
 
   return (
-    <div className="min-h-screen bg-slate-900 text-white p-4 sm:p-6 lg:p-8 relative">
+    <div className="min-h-screen bg-slate-900 text-white p-2 sm:p-6 lg:p-8 relative">
       <div className="absolute inset-0 overflow-hidden z-0">
         <div className="absolute top-0 -left-4 w-72 h-72 bg-purple-500 rounded-full mix-blend-multiply filter blur-xl opacity-20 animate-blob"></div>
         <div className="absolute top-0 -right-4 w-72 h-72 bg-pink-500 rounded-full mix-blend-multiply filter blur-xl opacity-20 animate-blob delay-700"></div>
@@ -144,13 +144,13 @@ const Preferences = () => {
               Personalize Your Experience
             </p>
           </div>
-          <h1 className="text-3xl sm:text-4xl md:text-5xl font-bold text-white mb-3 animate-fade-in">
+          <h1 className="text-3xl sm:text-4xl md:text-5xl font-bold text-white mb-1 animate-fade-in">
             <span className="inline-block animate-wave origin-[70%_70%] mr-2">
               👋
             </span>
             Hi, {user?.profile.name || "there"}!
           </h1>
-          <p className="text-lg text-gray-300 animate-fade-in-up">
+          <p className="text-lg ml-10 mt-1 text-gray-300 animate-fade-in-up">
             Help Anya get to know you better
           </p>
         </div>
