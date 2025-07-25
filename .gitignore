@@ -325,6 +325,45 @@ article_cache/
 uploads/
 user_data/
 
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+
+# Test binary
+*.test
+
+# Output of the go coverage tool
+*.out
+
+# Go workspace file
+go.work
+
+# Logs
+logs/
+*.log
+
+# Environment files
+.env.local
+.env.production
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Temporary files
+tmp/
+temp/
+
 
 !.env.example
 !.gitkeep
