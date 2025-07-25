@@ -12,3 +12,4 @@ redis
 pydantic
 email-validator
 requests
+jwt

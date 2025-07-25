@@ -1,4 +1,5 @@
 services:
+  # MongoDB Database
   mongodb:
     image: mongo
     container_name: anya_mongodb
@@ -8,7 +9,129 @@ services:
       - mongodb_data:/data/db
     environment:
       MONGO_INITDB_DATABASE: Anya
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: anyapassword
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.runCommand('ping').ok"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - anya_network
+
+  # Redis for Streams (Manager Service <-> Backend communication)
+  redis_streams:
+    image: redis:7.2-alpine
+    container_name: anya_redis_streams
+    ports:
+      - "6378:6379"
+    volumes:
+      - redis_streams_data:/data
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    networks:
+      - anya_network
+
+  # Redis for Short-term Memory Context
+  redis_memory:
+    image: redis:7.2-alpine
+    container_name: anya_redis_memory
+    ports:
+      - "6380:6379"
+    volumes:
+      - redis_memory_data:/data
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy volatile-lru --save 60 1000
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    networks:
+      - anya_network
+
+  # ChromaDB Vector Database
+  chromadb:
+    image: chromadb/chroma:1.0.16.dev70
+    container_name: anya_chromadb
+    ports:
+      - "9000:8000"
+    volumes:
+      - chromadb_data:/chroma/chroma
+    environment:
+      - CHROMA_SERVER_HOST=0.0.0.0
+      - CHROMA_SERVER_HTTP_PORT=8000
+      - ANONYMIZED_TELEMETRY=False
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/heartbeat"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    networks:
+      - anya_network
+
+  # Redis Commander (Web UI for Redis management)
+  redis_commander:
+    image: rediscommander/redis-commander:latest
+    container_name: anya_redis_ui
+    ports:
+      - "8081:8081"
+    environment:
+      - REDIS_HOSTS=streams:anya_redis_streams:6379:0,memory:anya_redis_memory:6379:0
+      - HTTP_USER=admin
+      - HTTP_PASSWORD=anyaadmin
+    restart: unless-stopped
+    depends_on:
+      redis_streams:
+        condition: service_healthy
+      redis_memory:
+        condition: service_healthy
+    networks:
+      - anya_network
+
+  # MongoDB Express (Web UI for MongoDB management)
+  mongo_express:
+    image: mongo-express:1.0.2
+    container_name: anya_mongo_ui
+    ports:
+      - "8082:8081"
+    environment:
+      ME_CONFIG_MONGODB_ADMINUSERNAME: admin
+      ME_CONFIG_MONGODB_ADMINPASSWORD: anyapassword
+      ME_CONFIG_MONGODB_URL: mongodb://admin:anyapassword@mongodb:27017/
+      ME_CONFIG_BASICAUTH_USERNAME: admin
+      ME_CONFIG_BASICAUTH_PASSWORD: anyaadmin
+    restart: unless-stopped
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    networks:
+      - anya_network
 
 volumes:
   mongodb_data:
+    driver: local
+  redis_streams_data:
+    driver: local
+  redis_memory_data:
+    driver: local
+  chromadb_data:
+    driver: local
+
+networks:
+  anya_network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16

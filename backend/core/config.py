@@ -24,7 +24,7 @@ class Settings(BaseSettings):
     
     # Authentication Configuration
     GOOGLE_CLIENT_ID: str = "dummy_client_id"
-    JWT_SECRET_KEY: str = "dummy_secret_key"
+    JWT_SECRET_KEY: str = "Divyansh"
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_DAYS: int = 7
     

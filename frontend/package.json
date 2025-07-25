@@ -13,9 +13,11 @@
     "@heroicons/react": "^2.2.0",
     "@react-oauth/google": "^0.12.2",
     "axios": "^1.11.0",
+    "dompurify": "^3.2.6",
     "jotai": "^2.12.5",
     "jwt-decode": "^4.0.0",
     "lucide-react": "^0.525.0",
+    "marked": "^16.1.1",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "react-router-dom": "^7.7.0"

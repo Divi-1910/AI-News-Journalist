@@ -37,7 +37,6 @@ apiClient.interceptors.request.use(
         }
       );
     }
-
     return config;
   },
   (error) => {
@@ -198,6 +197,32 @@ export const UserApi = {
         error.response?.data?.detail ||
           "Failed to update preferences. Please try again."
       );
+    }
+  }
+};
+
+export const ChatApi = {
+  loadChatHistory: async (limit) => {
+    try {
+      const response = await apiClient.get(`/api/chats/history?limit=${limit}`);
+      return response.data;
+    } catch (error) {
+      console.log("Failed to get the chat history : ", error);
+      throw new Error(
+        error.response?.data?.detail || "Failed to get the chat history"
+      );
+    }
+  },
+
+  sendMessage: async (messageContent) => {
+    try {
+      const response = await apiClient.post(`/api/chats/send`, {
+        message: messageContent
+      });
+      return response.data;
+    } catch (error) {
+      console.log("Failed to send message : ", error);
+      throw new Error(error.response?.data?.detail || "Failed to send message");
     }
   }
 };

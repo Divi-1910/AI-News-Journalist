@@ -117,6 +117,40 @@ class AuthService:
 
     
     @staticmethod
+    async def get_user_by_id(user_id: str) -> User:
+        """Get user by ID"""
+        try:
+            db = get_database()
+            users_collection = db.users
+            user_data = await users_collection.find_one({"_id": ObjectId(user_id)})
+            
+            if not user_data:
+                return None
+                
+            user_data["id"] = str(user_data["_id"])
+            del user_data["_id"]
+            
+            complete_data = AuthService._ensure_user_data_completeness(user_data)
+            return User(**complete_data)
+            
+        except Exception as e:
+            logger.error(f"Error getting user by ID: {str(e)}")
+            return None
+    
+    @staticmethod
+    async def update_user_last_active(user_id: str):
+        """Update user last active timestamp"""
+        try:
+            db = get_database()
+            users_collection = db.users
+            await users_collection.update_one(
+                {"_id": ObjectId(user_id)},
+                {"$set": {"last_login": datetime.utcnow()}}
+            )
+        except Exception as e:
+            logger.error(f"Error updating last active: {str(e)}")
+    
+    @staticmethod
     def _ensure_user_data_completeness(user_data: Dict[str, Any]) -> Dict[str , Any]:
         """ 
         Ensure User Data has all required fields for backward compatibility
@@ -206,7 +240,7 @@ class AuthService:
             HTTPException: If token verification fails
         """
         try: 
-            payload = jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM] , audience="anya-frontend" , issuer=settings.APP_NAME)
+            payload = jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM], audience="anya-frontend", issuer=settings.APP_NAME)
             
             
             user_id = payload.get("user_id")

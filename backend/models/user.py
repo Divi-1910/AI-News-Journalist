@@ -4,10 +4,8 @@ from datetime import datetime
 from bson import ObjectId
 from enum import Enum
 
-# Updated PyObjectId for Pydantic v2
 class PyObjectId(ObjectId):
     """Custom ObjectId type for Pydantic v2"""
-    
     @classmethod
     def __get_pydantic_core_schema__(cls, source_type, handler):
         from pydantic_core import core_schema
@@ -28,6 +26,114 @@ class PyObjectId(ObjectId):
         field_schema.update(type="string")
         return field_schema
 
+class MessageType(str , Enum): 
+    """ Types of messages in the chat"""
+    USER = "user"
+    ASSISTANT = "assistant"
+    SYSTEM = "system"
+
+
+class AgentType(str , Enum):
+    """Types of Agents in your workflow """
+    CLASSIFIER = "classifier"
+    KEYWORD_EXTRACTOR = "keyword-extractor"
+    NEWS_API = "news-api"
+    EMBEDDING = "embedding"
+    RELEVANCY = "relevancy"
+    SCRAPER = "scraper"
+    SUMMARIZER = "summarizer"
+    MEMORY = "memory"
+    PERSONA = "persona"
+    CHITCHAT = "chitchat"
+    
+
+class AgentStatus(str , Enum):
+    """Status of agent processing """
+    PENDING = "pending"
+    PROCESSING = "processing"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    SKIPPED = "skipped"
+    
+
+class AgentUpdate(BaseModel):
+    """Individual Agent Update During message Processing """
+    model_config = ConfigDict(validate_assignment=True)
+    agent_type : AgentType
+    status : AgentStatus 
+    message : Optional[str] = None 
+    data : Optional[Any] = None
+    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    processing_time_ms: Optional[int] = None
+    error : Optional[str] = None 
+    
+    
+class NewsSource(BaseModel):
+    """News Source Information"""
+    model_config = ConfigDict(validate_assignment=True)
+    title : str
+    url : str 
+    source_name: str 
+    published_at : Optional[datetime] = None 
+    relevance_score : Optional[float] = None 
+    
+class ChatMessage(BaseModel):
+    """Individual chat message with workflow metadata """
+    model_config = ConfigDict(
+        validate_assignment=True,
+        json_encoders={datetime : lambda v : v.isoformat()}
+    )
+    id : str = Field(default_factory= lambda : str(ObjectId()))
+    type : MessageType 
+    content : str 
+    timestamp : datetime = Field(default_factory=datetime.utcnow)
+    
+    raw_query : Optional[str] = None 
+    extracted_keywords : Optional[List[str]] = None
+    intent_classification : Optional[str] = None 
+    
+    sources: Optional[List[NewsSource]] = None 
+    agent_updates: Optional[List[AgentUpdate]] = None
+    processing_time_total_ms : Optional[int] = None 
+    
+    workflow_id : Optional[str] = None 
+    manager_service_data : Optional[Dict[str , Any]] = None 
+    
+    metadata : Optional[Dict[str, Any]] = None 
+    
+class LongTermConversationContext(BaseModel): 
+    """Conversation Context for memory and follow-ups """
+    model_config = ConfigDict(validate_assignment=True)
+    
+    recent_topics: List[str] = Field(default_factory=list , max_length=10)
+    
+    mentioned_entities : Dict[str , int] = Field(default_factory=dict)
+    
+    recent_keywords : List[str] = Field(default_factory=list, max_length=20)
+    
+    knowledge_base : Dict[str, str] = Field(default_factory=dict)
+    
+class ChatData(BaseModel): 
+    
+    model_config = ConfigDict(
+        validate_assignment = True,
+        json_encoders = {datetime : lambda v : v.isoformat()}
+    )
+    
+    messages: List[ChatMessage] = Field(default_factory=list)
+    
+    LongTermContext : LongTermConversationContext = Field(default_factory=LongTermConversationContext)
+    
+    started_at : datetime = Field(default_factory=datetime.utcnow)
+    last_activity : datetime = Field(default_factory=datetime.utcnow)
+    
+    total_messages : int = 0 
+    total_user_messages: int = 0
+    total_assistant_messages: int = 0
+    
+    average_response_time_ms: Optional[float] = None
+    total_agent_updates: int = 0
+    
 class NewsPersonalityEnum(str, Enum):
     """Available news anchor personalities"""
     CALM_ANCHOR = "calm-anchor"
@@ -65,16 +171,13 @@ class UserPreferences(BaseModel):
     @field_validator('favorite_topics')
     @classmethod
     def validate_topics(cls, v):
-        """Validate favorite topics"""
         if v:
-            # Remove duplicates and empty strings
             v = list(set(topic.strip().lower() for topic in v if topic.strip()))
             # Limit topic length
             v = [topic[:50] for topic in v if len(topic.strip()) >= 2]
         return v
 
 class UserProfile(BaseModel):
-    """User profile information"""
     model_config = ConfigDict(
         str_strip_whitespace=True,
         validate_assignment=True
@@ -133,12 +236,12 @@ class User(BaseModel):
     preferences: UserPreferences = Field(default_factory=UserPreferences)
     stats: UserStats = Field(default_factory=UserStats)
     
-    # Account status
+    chat : ChatData = Field(default_factory=ChatData)
+    
     is_active: bool = True
     is_verified: bool = True
     onboarding_completed: bool = False
     
-    # Timestamps
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
     last_login: Optional[datetime] = None
@@ -147,6 +250,97 @@ class User(BaseModel):
     subscription_tier: str = Field(default="free")
     monthly_query_limit: int = Field(default=1000)
     monthly_queries_used: int = Field(default=0)
+    
+    
+    def add_chat_message(self , message : ChatMessage) -> None: 
+        """Add Message to chat and update all relevant stats """
+        
+        self.chat.messages.append(message)
+        self.chat.total_messages += 1
+        self.chat.last_activity = datetime.utcnow()
+        self.updated_at = datetime.utcnow()
+        
+        if message.type == MessageType.USER:
+            self.chat.total_user_messages += 1
+            self.monthly_queries_used += 1
+            self.stats.total_messages += 1
+            
+                            
+        elif message.type == MessageType.ASSISTANT:
+            self.chat.total_assistant_messages += 1
+            
+            # Count sources provided
+            if message.sources:
+                self.stats.total_sources_read += len(message.sources)
+            
+            # Count agent updates
+            if message.agent_updates:
+                self.chat.total_agent_updates += len(message.agent_updates)
+                
+    
+    def get_chat_history(self , limit : Optional[int] = None) -> List[ChatMessage]:
+        """ 
+        Get chat history with optinal limit - it guaranteed chronological ordering 
+        """
+        
+        if limit : 
+            return self.chat.messages[-limit:]
+        return self.chat.messages
+
+    def get_long_term_context(self) -> LongTermConversationContext:
+        """Get stored Long term Conversation context for the Manager Service """
+        return self.chat.LongTermContext 
+    
+    def update_long_term_context(self, 
+                            keywords: Optional[List[str]] = None, 
+                            entities: Optional[Dict[str, int]] = None, 
+                            topics: Optional[List[str]] = None, 
+                            knowledge_base_updates: Optional[Dict[str, str]] = None) -> None:
+        """ Update the Converstation Context from the workflow """
+        
+        context = self.chat.LongTermContext 
+        
+        if topics : 
+            for topic in topics:
+                if topic not in context.recent_topics:
+                    context.recent_topics.append(topic)
+                context.recent_topics = context.recent_topics[-10:]
+            
+        if entities:
+            for entity , count in entities.items():
+                context.mentioned_entities[entity] = context.mentioned_entities.get(entity, 0) + count
+                
+        if keywords: 
+            for keyword in keywords:
+                if keyword not in context.recent_keywords:
+                    context.recent_keywords.append(keyword)
+                context.recent_keywords = context.recent_keywords[-20:]
+                
+        if knowledge_base_updates: 
+            context.knowledge_base.update(knowledge_base_updates)
+        
+                
+        self.updated_at = datetime.utcnow()
+        
+    
+    def clear_chat_history(self , preserve_long_term_context : bool = True) -> None: 
+        """
+        Clear Chat History while optionally preserving context 
+        """
+        
+        if preserve_long_term_context : 
+            old_long_term_context = self.chat.LongTermContext
+            recent_topics = old_long_term_context.recent_topics[-5:]
+            key_entities = {k : v for k,v in old_long_term_context.mentioned_entities.items() if v>2}
+            
+            self.chat = ChatData() 
+            self.chat.LongTermContext.recent_topics = recent_topics
+            self.chat.LongTermContext.mentioned_entities = key_entities
+        else:
+            self.chat = ChatData()
+            
+        self.updated_at = datetime.utcnow()
+    
 
 class UserCreate(BaseModel):
     """Schema for creating a new user"""

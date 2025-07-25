@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { X, Sparkles, Palette, Globe } from "lucide-react";
 import { useAtom } from "jotai";
 import { userAtom } from "../store/AuthStore";
-import { AuthApi } from "../api/api";
+import { AuthApi, UserApi } from "../api/api";
 import {
   Brain,
   Mic,
@@ -20,56 +20,12 @@ const SettingsDialog = ({ isOpen, onClose }) => {
   const [hasChanges, setHasChanges] = useState(false);
 
   useEffect(() => {
-    console.log("the user is : ", user);
-    //     {
-    //     "id": "6881d9ac249fc004b6bf699a",
-    //     "google_id": "112507674337596503347",
-    //     "profile": {
-    //         "name": "Divyansh",
-    //         "email": "dvmuley10@gmail.com",
-    //         "picture": "https://lh3.googleusercontent.com/a/ACg8ocJFE1n0ixL6qBEexfx8pHefUuinDDhnjk0CO1F63FEqnqszWnoA=s96-c",
-    //         "bio": null,
-    //         "location": null,
-    //         "timezone": "UTC"
-    //     },
-    //     "preferences": {
-    //         "news_personality": "friendly-explainer",
-    //         "favorite_topics": [
-    //             "finance",
-    //             "ai & machine learning",
-    //             "business",
-    //             "technology"
-    //         ],
-    //         "content_length": "medium",
-    //         "notification_settings": {
-    //             "email": true,
-    //             "browser_push": false,
-    //             "daily_digest": true
-    //         },
-    //         "ui_theme": "light",
-    //         "language": "en"
-    //     },
-    //     "stats": {
-    //         "total_conversations": 0,
-    //         "total_messages": 0,
-    //         "total_time_spent": 0,
-    //         "favorite_topics_usage": {},
-    //         "last_active": "2025-07-24T07:02:40.204000",
-    //         "streak_days": 0,
-    //         "total_sources_read": 0
-    //     },
-    //     "is_active": true,
-    //     "onboarding_completed": true,
-    //     "subscription_tier": "free",
-    //     "created_at": "2025-07-24T06:58:52.389000",
-    //     "last_login": "2025-07-24T07:02:39.812000"
-    // }
-
     if (isOpen && user?.preferences) {
       setPreferences({
-        news_personality: user.preferences.news_personality || 'friendly-explainer',
+        news_personality:
+          user.preferences.news_personality || "friendly-explainer",
         favorite_topics: user.preferences.favorite_topics || [],
-        content_length: user.preferences.content_length || 'medium'
+        content_length: user.preferences.content_length || "medium"
       });
       setHasChanges(false);
     }
@@ -171,13 +127,11 @@ const SettingsDialog = ({ isOpen, onClose }) => {
     handlePreferenceChange("favorite_topics", newTopics);
   };
 
-
-
   const handleSave = async () => {
     setIsLoading(true);
     try {
       // Update preferences via API
-      const updatedUser = await AuthApi.updateUserPreferences(preferences);
+      const updatedUser = await UserApi.updateUserPreferences(preferences);
 
       // Update local user state
       setUser(updatedUser);
@@ -295,7 +249,9 @@ const SettingsDialog = ({ isOpen, onClose }) => {
               </div>
               <div className="grid grid-cols-2 gap-2">
                 {topicOptions.map((topic) => {
-                  const isSelected = (preferences.favorite_topics || []).includes(topic.toLowerCase());
+                  const isSelected = (
+                    preferences.favorite_topics || []
+                  ).includes(topic.toLowerCase());
                   return (
                     <label
                       key={topic}
