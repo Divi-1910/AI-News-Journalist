@@ -37,7 +37,7 @@ class Settings(BaseSettings):
     ]
     
     # Redis Configuration
-    REDIS_URL: str = "redis://localhost:6379"
+    REDIS_URL: str = "redis://localhost:6378"
     
     # API Configuration
     API_VERSION: str = "v1"
