@@ -170,12 +170,11 @@ func (service *RedisService) GetConversationContext(ctx context.Context, UserID 
 	}
 
 	context := &models.ConversationContext{
-		UserID:            UserID,
-		RecentTopics:      []string{},
-		MentionedEntities: make(map[string]int),
-		RecentKeywords:    []string{},
-		SessionStartTime:  time.Now(),
-		MessageCount:      0,
+		UserID:           UserID,
+		RecentTopics:     []string{},
+		RecentKeywords:   []string{},
+		SessionStartTime: time.Now(),
+		MessageCount:     0,
 		UserPreferences: models.UserPreferences{
 			NewsPersonality: "",
 			FavouriteTopics: []string{},
@@ -190,10 +189,6 @@ func (service *RedisService) GetConversationContext(ctx context.Context, UserID 
 
 	if err := parseJSONField(data, "recent_keywords", &context.RecentKeywords); err != nil {
 		service.logger.WithError(err).Warn("Failed to parse recent_keywords")
-	}
-
-	if err := parseJSONField(data, "mentioned_entities", &context.MentionedEntities); err != nil {
-		service.logger.WithError(err).Warn("Failed to parse mentioned_entities")
 	}
 
 	if err := parseJSONField(data, "user_preferences", &context.UserPreferences); err != nil {
@@ -247,11 +242,6 @@ func (service *RedisService) UpdateConversationContext(ctx context.Context, conv
 	keywordsJSON, err := json.Marshal(conversationContext.RecentKeywords)
 	if err == nil {
 		data["recent_keywords"] = string(keywordsJSON)
-	}
-
-	entitiesJSON, err := json.Marshal(conversationContext.MentionedEntities)
-	if err == nil {
-		data["mentioned_entities"] = string(entitiesJSON)
 	}
 
 	prefsJSON, err := json.Marshal(conversationContext.UserPreferences)
@@ -333,7 +323,7 @@ func (service *RedisService) StoreWorkflowState(ctx context.Context, workflowCtx
 	return nil
 }
 
-func (service *RedisService) GetWorkflow(ctx context.Context, workflowID string) (*models.WorkflowContext, error) {
+func (service *RedisService) GetWorkflowState(ctx context.Context, workflowID string) (*models.WorkflowContext, error) {
 	key := fmt.Sprintf("workflow:%s:state", workflowID)
 	startTime := time.Now()
 
@@ -360,5 +350,18 @@ func (service *RedisService) GetWorkflow(ctx context.Context, workflowID string)
 	}, nil)
 
 	return &workflowContext, nil
+
+}
+
+func (service *RedisService) HealthCheck(ctx context.Context) error {
+
+	if err := service.memory.Ping(ctx).Err(); err != nil {
+		return fmt.Errorf("Memory Connection Unhealthy: %w", err)
+	}
+
+	if err := service.streams.Ping(ctx).Err(); err != nil {
+		return fmt.Errorf("Streams Connection Unhealthy: %w", err)
+	}
+	return nil
 
 }

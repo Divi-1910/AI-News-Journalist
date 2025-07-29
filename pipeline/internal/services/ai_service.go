@@ -5,6 +5,7 @@ import (
 	"anya-ai-pipeline/internal/models"
 	"anya-ai-pipeline/internal/pkg/logger"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"google.golang.org/genai"
@@ -525,6 +526,264 @@ func (service *GeminiService) parseKeywordsResponse(response string) []string {
 	return keywords
 }
 
+// Relevancy Agent
+func (service *GeminiService) GetRelevantArticles(ctx context.Context, articles []models.NewsArticle, context map[string]interface{}) ([]models.NewsArticle, error) {
+	startTime := time.Now()
+
+	service.logger.LogService("gemini", "get_relevant_articles", 0, map[string]interface{}{
+		"articles_count": len(articles),
+		"context_keys":   getMapKeys(context),
+	}, nil)
+
+	if len(articles) == 0 {
+		return []models.NewsArticle{}, nil
+	}
+
+	prompt := service.buildRelevancyAgentPrompt(articles, context)
+
+	req := &GenerationRequest{
+		Prompt:          prompt,
+		Temperature:     &[]float32{0.3}[0],
+		SystemRole:      "You are an expert news relevancy evaluator. Analyze articles and return only the most relevant ones in the specified JSON format.",
+		MaxTokens:       8192,
+		DisableThinking: true,
+		ResponseFormat:  "application/json",
+	}
+
+	resp, err := service.GenerateContent(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("relevancy evaluation failed: %w", err)
+	}
+
+	relevantArticles, err := service.parseRelevantArticlesResponse(resp.Content, articles)
+	if err != nil {
+		service.logger.WithError(err).Warn("Failed to parse relevancy response, using fallback")
+		return service.fallbackSelection(articles), nil
+	}
+
+	duration := time.Since(startTime)
+	service.logger.LogService("gemini", "get_relevant_articles", duration, map[string]interface{}{
+		"articles_input":    len(articles),
+		"articles_relevant": len(relevantArticles),
+		"avg_relevance":     service.calculateAverageRelevance(relevantArticles),
+		"tokens_used":       resp.TokensUsed,
+	}, nil)
+
+	return relevantArticles, nil
+}
+func (service *GeminiService) buildRelevancyAgentPrompt(articles []models.NewsArticle, context map[string]interface{}) string {
+	userQuery := ""
+	if query, ok := context["user_query"].(string); ok {
+		userQuery = query
+	}
+
+	recentTopics := []string{}
+	if topics, ok := context["recent_topics"].([]string); ok {
+		recentTopics = topics
+	}
+
+	articlesJSON := ""
+	for i, article := range articles {
+		articlesJSON += fmt.Sprintf(`    {
+      "id": %d,
+      "title": "%s",
+      "url": "%s",
+      "source": "%s",
+      "author": "%s",
+      "published_at": "%s",
+      "description": "%s",
+      "category": "%s"
+    }`,
+			i,
+			service.escapeJSON(article.Title),
+			service.escapeJSON(article.URL),
+			service.escapeJSON(article.Source),
+			service.escapeJSON(article.Author),
+			article.PublishedAt.Format("2006-01-02T15:04:05Z"),
+			service.escapeJSON(article.Description),
+			service.escapeJSON(article.Category))
+
+		if i < len(articles)-1 {
+			articlesJSON += ",\n"
+		}
+	}
+
+	recentTopicsStr := strings.Join(recentTopics, ", ")
+
+	return fmt.Sprintf(`You are an expert news relevancy evaluator. Analyze the following articles to determine how well they address the user's query.
+
+		USER QUERY: "%s"
+
+		RECENT TOPICS/KEYWORDS: %s
+
+		ARTICLES TO EVALUATE:
+						[
+							%s
+						]
+
+		EVALUATION CRITERIA:
+			1. Does the article directly address the user's question?
+			2. Does it match the user's intent and context?
+			3. Is it recent and informative?
+			4. Is it likely to help answer the user's specific query?
+
+		SCORING SCALE:
+			- 0.90–1.00: Direct match, perfectly relevant
+			- 0.80–0.89: Highly relevant, closely addresses query
+			- 0.70–0.79: Moderately relevant, good connection
+			- 0.60–0.69: Somewhat relevant, tangential connection
+			- 0.50–0.59: Weakly relevant, same general topic
+			- < 0.50: Not relevant, different focus
+
+		TASK:
+			1. Evaluate each article for relevance to the user's query
+			2. Return only articles with relevance score >= 0.7
+			3. Maximum 5 articles in final selection
+			4. If no articles score >= 0.7, return top 3 articles regardless
+			5. Sort by relevance score (highest first)
+
+		RESPONSE FORMAT (JSON only, no additional text):
+				{
+				  "relevant_articles": [
+					{
+					  "id": 0,
+					  "title": "Article Title Here",
+					  "url": "https://article-url.com",
+					  "source": "Source Name",
+					  "author": "Author Name",
+					  "published_at": "2024-01-15T10:30:00Z",
+					  "description": "Article description",
+					  "content": "",
+					  "image_url": "",
+					  "category": "technology",
+					  "relevance_score": 0.95
+					}
+				  ],
+				  "evaluation_summary": {
+					"total_evaluated": 10,
+					"relevant_found": 3,
+					"average_relevance": 0.87,
+					"threshold_used": 0.7
+				  }
+				}
+
+Respond with only the JSON object, no markdown formatting.`,
+		userQuery, recentTopicsStr, articlesJSON)
+}
+
+func (service *GeminiService) parseRelevantArticlesResponse(response string, originalArticles []models.NewsArticle) ([]models.NewsArticle, error) {
+	response = strings.TrimSpace(response)
+
+	if strings.HasPrefix(response, "```json") {
+		response = strings.TrimPrefix(response, "```json")
+		response = strings.TrimSuffix(response, "```")
+		response = strings.TrimSpace(response)
+	} else if strings.HasPrefix(response, "```") {
+		response = strings.TrimPrefix(response, "```")
+		response = strings.TrimSuffix(response, "```")
+		response = strings.TrimSpace(response)
+	}
+
+	type RelevantArticleResponse struct {
+		ID             int     `json:"id"`
+		Title          string  `json:"title"`
+		URL            string  `json:"url"`
+		Source         string  `json:"source"`
+		Author         string  `json:"author"`
+		PublishedAt    string  `json:"published_at"`
+		Description    string  `json:"description"`
+		Content        string  `json:"content"`
+		ImageURL       string  `json:"image_url"`
+		RelevanceScore float64 `json:"relevance_score"`
+	}
+
+	type RelevancyResponse struct {
+		RelevantArticles  []RelevantArticleResponse `json:"relevant_articles"`
+		EvaluationSummary struct {
+			TotalEvaluated   int `json:"total_evaluated"`
+			RelevantFound    int `json:"relevant_found"`
+			AverageRelevancy int `json:"average_relevancy"`
+			ThresholdUsed    int `json:"threshold_used"`
+		} `json:"evaluation_summary"`
+	}
+
+	var parsedResponse RelevancyResponse
+	if err := json.Unmarshal([]byte(response), &parsedResponse); err != nil {
+		return nil, fmt.Errorf("failed to parse Json response: %w", err)
+	}
+
+	var relevantArticles []models.NewsArticle
+	for _, item := range parsedResponse.RelevantArticles {
+		var article models.NewsArticle
+		if item.ID >= 0 && item.ID < len(originalArticles) {
+			article = originalArticles[item.ID]
+		} else {
+			publishedAt, _ := time.Parse("2006-01-02T15:04:05Z", item.PublishedAt)
+			article = models.NewsArticle{
+				Title:       item.Title,
+				URL:         item.URL,
+				Source:      item.Source,
+				Author:      item.Author,
+				PublishedAt: publishedAt,
+				Description: item.Description,
+				Content:     item.Content,
+				ImageURL:    item.ImageURL,
+			}
+		}
+
+		article.RelevanceScore = item.RelevanceScore
+		relevantArticles = append(relevantArticles, article)
+	}
+
+	service.logger.Info("Relevancy Evaluation Completed",
+		"total_evaluated", parsedResponse.EvaluationSummary.TotalEvaluated,
+		"relevant_found", parsedResponse.EvaluationSummary.RelevantFound,
+		"average_relevance", parsedResponse.EvaluationSummary.AverageRelevancy,
+		"threshold_used", parsedResponse.EvaluationSummary.ThresholdUsed)
+
+	return relevantArticles, nil
+}
+
+func (service *GeminiService) escapeJSON(str string) string {
+	// Always escape backslashes first
+	str = strings.ReplaceAll(str, "\\", "\\\\")
+	str = strings.ReplaceAll(str, "\"", "\\\"")
+	str = strings.ReplaceAll(str, "\n", "\\n")
+	str = strings.ReplaceAll(str, "\r", "\\r")
+	str = strings.ReplaceAll(str, "\t", "\\t")
+	return str
+}
+
+func (service *GeminiService) fallbackSelection(articles []models.NewsArticle) []models.NewsArticle {
+	maxArticles := 3
+	if len(articles) < maxArticles {
+		maxArticles = len(articles)
+	}
+
+	var result []models.NewsArticle
+	for i := 0; i < maxArticles; i++ {
+		article := articles[i]
+		article.RelevanceScore = 0.5
+		result = append(result, article)
+	}
+
+	return result
+}
+
+func (service *GeminiService) calculateAverageRelevance(articles []models.NewsArticle) float64 {
+	if len(articles) == 0 {
+		return 0.0
+	}
+
+	var sum float64
+	for _, article := range articles {
+		sum += article.RelevanceScore
+	}
+
+	return sum / float64(len(articles))
+
+}
+
 // Summarization Agent
 func (service *GeminiService) SummarizeContent(ctx context.Context, query string, articleContent []string) (string, error) {
 	if len(articleContent) == 0 {
@@ -776,6 +1035,7 @@ Instructions:
 Now provide a well-written answer for the user:`, query, response)
 }
 
+// Chit Chat Agent
 func (service *GeminiService) GenerateChitChatResponse(ctx context.Context, query string, context map[string]interface{}) (string, error) {
 	prompt := service.buildChitchatPrompt(query, context)
 
@@ -828,6 +1088,31 @@ func (service *GeminiService) buildChitchatPrompt(query string, context map[stri
 	Let your personality shine, while staying helpful.
 	
 	Now respond to the user’s message:`, query, context)
+}
+
+func (service *GeminiService) HealthCheck(ctx context.Context) error {
+	testCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	var temperature float32 = 0
+
+	req := &GenerationRequest{
+		Prompt:      "Respond with 'OK' if you can process this request",
+		Temperature: &temperature,
+		MaxTokens:   10,
+	}
+
+	resp, err := service.GenerateContent(testCtx, req)
+	if err != nil {
+		return fmt.Errorf("Health Check Failed: %v", err)
+	}
+
+	if resp.Content == "" {
+		return fmt.Errorf("Empty Response Received")
+	}
+
+	return nil
+
 }
 
 func (service *GeminiService) Close() error {

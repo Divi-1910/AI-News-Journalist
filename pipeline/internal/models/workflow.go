@@ -44,16 +44,15 @@ type WorkflowContext struct {
 }
 
 type ConversationContext struct {
-	UserID            string          `json:"user_id"`
-	RecentTopics      []string        `json:"recent_topics"`
-	MentionedEntities map[string]int  `json:"mentioned_entities"`
-	RecentKeywords    []string        `json:"recent_keywords"`
-	LastQuery         string          `json:"last_query"`
-	LastIntent        string          `json:"last_intent"`
-	MessageCount      int             `json:"message_count"`
-	SessionStartTime  time.Time       `json:"session_start_time"`
-	UserPreferences   UserPreferences `json:"user_preferences"`
-	UpdatedAt         time.Time       `json:"updated_at"`
+	UserID           string          `json:"user_id"`
+	RecentTopics     []string        `json:"recent_topics"`
+	RecentKeywords   []string        `json:"recent_keywords"`
+	LastQuery        string          `json:"last_query"`
+	LastIntent       string          `json:"last_intent"`
+	MessageCount     int             `json:"message_count"`
+	SessionStartTime time.Time       `json:"session_start_time"`
+	UserPreferences  UserPreferences `json:"user_preferences"`
+	UpdatedAt        time.Time       `json:"updated_at"`
 }
 
 type UserPreferences struct {
@@ -128,14 +127,13 @@ func NewWorkflowContext(req WorkflowRequest, requestID string) *WorkflowContext 
 		Status:    WorkflowStatusPending,
 		StartTime: time.Now(),
 		ConversationContext: ConversationContext{
-			UserID:            req.UserID,
-			RecentTopics:      []string{},
-			MentionedEntities: make(map[string]int),
-			RecentKeywords:    []string{},
-			LastQuery:         "",
-			LastIntent:        "",
-			MessageCount:      0,
-			SessionStartTime:  time.Now(),
+			UserID:           req.UserID,
+			RecentTopics:     []string{},
+			RecentKeywords:   []string{},
+			LastQuery:        "",
+			LastIntent:       "",
+			MessageCount:     0,
+			SessionStartTime: time.Now(),
 			UserPreferences: UserPreferences{
 				NewsPersonality: "",
 				FavouriteTopics: []string{},
