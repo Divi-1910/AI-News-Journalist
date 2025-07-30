@@ -101,18 +101,6 @@ class ChatMessage(BaseModel):
     
     metadata : Optional[Dict[str, Any]] = None 
     
-class LongTermConversationContext(BaseModel): 
-    """Conversation Context for memory and follow-ups """
-    model_config = ConfigDict(validate_assignment=True)
-    
-    recent_topics: List[str] = Field(default_factory=list , max_length=10)
-    
-    mentioned_entities : Dict[str , int] = Field(default_factory=dict)
-    
-    recent_keywords : List[str] = Field(default_factory=list, max_length=20)
-    
-    knowledge_base : Dict[str, str] = Field(default_factory=dict)
-    
 class ChatData(BaseModel): 
     
     model_config = ConfigDict(
@@ -122,7 +110,6 @@ class ChatData(BaseModel):
     
     messages: List[ChatMessage] = Field(default_factory=list)
     
-    LongTermContext : LongTermConversationContext = Field(default_factory=LongTermConversationContext)
     
     started_at : datetime = Field(default_factory=datetime.utcnow)
     last_activity : datetime = Field(default_factory=datetime.utcnow)
@@ -145,9 +132,10 @@ class NewsPersonalityEnum(str, Enum):
 
 class ContentLengthEnum(str, Enum):
     """Content length preferences"""
-    SHORT = "short"
-    MEDIUM = "medium"   
+    BRIEF = "brief"
+    CONCISE = "concise"
     DETAILED = "detailed"
+    COMPREHENSIVE = "comprehensive"
 
 class UserPreferences(BaseModel):
     """User preferences schema"""
@@ -159,7 +147,7 @@ class UserPreferences(BaseModel):
     
     news_personality: Optional[NewsPersonalityEnum] = None
     favorite_topics: List[str] = Field(default_factory=list, max_length=10)
-    content_length: ContentLengthEnum = ContentLengthEnum.MEDIUM
+    content_length: ContentLengthEnum = ContentLengthEnum.BRIEF
     notification_settings: Dict[str, bool] = Field(default_factory=lambda: {
         "email": True,
         "browser_push": False,
@@ -223,7 +211,7 @@ class User(BaseModel):
                 "preferences": {
                     "news_personality": "charismatic_anchor",
                     "favorite_topics": ["technology", "ai", "startups"],
-                    "content_length": "medium"
+                    "content_length": "brief"
                 },
                 "onboarding_completed": True
             }
@@ -287,57 +275,13 @@ class User(BaseModel):
             return self.chat.messages[-limit:]
         return self.chat.messages
 
-    def get_long_term_context(self) -> LongTermConversationContext:
-        """Get stored Long term Conversation context for the Manager Service """
-        return self.chat.LongTermContext 
     
-    def update_long_term_context(self, 
-                            keywords: Optional[List[str]] = None, 
-                            entities: Optional[Dict[str, int]] = None, 
-                            topics: Optional[List[str]] = None, 
-                            knowledge_base_updates: Optional[Dict[str, str]] = None) -> None:
-        """ Update the Converstation Context from the workflow """
-        
-        context = self.chat.LongTermContext 
-        
-        if topics : 
-            for topic in topics:
-                if topic not in context.recent_topics:
-                    context.recent_topics.append(topic)
-                context.recent_topics = context.recent_topics[-10:]
-            
-        if entities:
-            for entity , count in entities.items():
-                context.mentioned_entities[entity] = context.mentioned_entities.get(entity, 0) + count
-                
-        if keywords: 
-            for keyword in keywords:
-                if keyword not in context.recent_keywords:
-                    context.recent_keywords.append(keyword)
-                context.recent_keywords = context.recent_keywords[-20:]
-                
-        if knowledge_base_updates: 
-            context.knowledge_base.update(knowledge_base_updates)
-        
-                
-        self.updated_at = datetime.utcnow()
-        
-    
-    def clear_chat_history(self , preserve_long_term_context : bool = True) -> None: 
+    def clear_chat_history(self) -> None: 
         """
         Clear Chat History while optionally preserving context 
         """
-        
-        if preserve_long_term_context : 
-            old_long_term_context = self.chat.LongTermContext
-            recent_topics = old_long_term_context.recent_topics[-5:]
-            key_entities = {k : v for k,v in old_long_term_context.mentioned_entities.items() if v>2}
-            
-            self.chat = ChatData() 
-            self.chat.LongTermContext.recent_topics = recent_topics
-            self.chat.LongTermContext.mentioned_entities = key_entities
-        else:
-            self.chat = ChatData()
+    
+        self.chat = ChatData()
             
         self.updated_at = datetime.utcnow()
     
@@ -359,7 +303,7 @@ class UserUpdate(BaseModel):
                 "preferences": {
                     "news_personality": "analytical_analyst",
                     "favorite_topics": ["finance", "tech", "crypto"],
-                    "content_length": "detailed"
+                    "content_length": "brief"
                 }
             }
         }
@@ -383,7 +327,7 @@ class UserResponse(BaseModel):
                 "preferences": {
                     "news_personality": "charismatic_anchor",
                     "favorite_topics": ["technology", "ai"],
-                    "content_length": "medium"
+                    "content_length": "brief"
                 },
                 "stats": {
                     "total_conversations": 15,

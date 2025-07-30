@@ -25,7 +25,7 @@ const SettingsDialog = ({ isOpen, onClose }) => {
         news_personality:
           user.preferences.news_personality || "friendly-explainer",
         favorite_topics: user.preferences.favorite_topics || [],
-        content_length: user.preferences.content_length || "medium"
+        content_length: user.preferences.content_length || "brief"
       });
       setHasChanges(false);
     }

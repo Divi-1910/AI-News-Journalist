@@ -8,9 +8,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"google.golang.org/genai"
 	"strings"
 	"time"
+
+	"google.golang.org/genai"
 )
 
 type GeminiService struct {
@@ -66,10 +67,10 @@ func NewGeminiService(config config.GeminiConfig, log *logger.Logger) (*GeminiSe
 		logger: log,
 	}
 
-	err = service.testConnection()
-	if err != nil {
-		return nil, fmt.Errorf("failed to connect to Gemini API: %w", err)
-	}
+	// err = service.testConnection()
+	// if err != nil {
+	// 	return nil, fmt.Errorf("failed to connect to Gemini API: %w", err)
+	// }
 
 	log.Info("AI service Initialized Sucessfully - Gemini API",
 		"model", config.Model,
@@ -312,25 +313,27 @@ func (service *GeminiService) parseQueryEnhancementResponse(response string, ori
 }
 
 func (service *GeminiService) buildQueryEnhancementPrompt(query string, context map[string]interface{}) string {
-	return fmt.Sprintf(`You are an intelligent assistant for an AI-powered news search engine. Your task is to **enhance** the user’s natural language query to improve the relevance and precision of semantic search across recent news articles.
-		Given:
-		- ORIGINAL_QUERY: "%s"
-		- USER_CONTEXT: %v
-		
-		Your job:
-		1. Interpret the intent behind the original query.
-		2. Add temporal cues (e.g., “latest”, “in 2025”, “recent”) if missing.
-		3. Add relevant entities (companies, people, topics) and synonyms.
-		4. Expand vague terms or abbreviations (e.g., “AI” → “artificial intelligence”).
-		5. Generate a richer, more specific **ENHANCED_QUERY**.
-		6. Suggest a list of precise **SEARCH_TERMS** optimized for keyword-based filtering.
-		7. Provide **SEMANTIC_CONTEXT** that captures the broader conceptual space.
-		8. Explain what **IMPROVEMENTS** were made and why.
-		
-		### Format your response exactly as shown below:
-		ENHANCED_QUERY: "<Your enhanced version of the query>"
-		
-		Focus on clarity, specificity, and semantic richness. Do not invent facts. Do not hallucinate.`, query, context)
+	return fmt.Sprintf(`You are an expert query enhancement assistant for an AI-powered news search engine. Your goal is to transform a user's natural language query into an optimized, detailed query that improves search relevance.
+
+Given:
+- ORIGINAL_USER_QUERY: "%s"
+- USER_CONTEXT: %v
+
+Your Tasks:
+1. Infer the user’s main intent and topic focus.
+2. Add explicit temporal qualifiers if missing (e.g., "latest," "recent," specific years or months).
+3. Expand ambiguous terms, acronyms, and abbreviations into full, common forms (e.g., "AI" to "artificial intelligence").
+4. Insert important named entities, people, organizations, locations, and events related to the query.
+5. Add synonyms and related keywords to capture broader search space.
+6. Avoid inventing details or hallucinating information.
+7. Generate the following outputs:
+
+Format your response EXACTLY as below:
+
+ENHANCED_QUERY: <A detailed, semantically rich query to use in semantic search>
+
+Only respond with the above sections in the given format; do not add any extra commentary.
+`, query, context)
 }
 
 func getMapKeys(mp map[string]interface{}) []string {
@@ -372,39 +375,35 @@ func (service *GeminiService) ClassifyIntent(ctx context.Context, query string, 
 }
 
 func (service *GeminiService) buildIntentClassificationPrompt(query string, context map[string]interface{}) string {
-	return fmt.Sprintf(`You are an AI agent that classifies a user query into one of two intents: "news" or "chit_chat".
-		
-		Query:
-		"%s"
-		
-		User Context:
-		%v
-		
-		Classification Rules:
-		
-		Classify as "news" if:
-		- The query asks about current events, recent developments, trending topics, or seeks factual/analytical information.
-		- It mentions entities like companies, people, technologies, or locations in a newsworthy context.
-		- It implies a request for an update, analysis, or event-based explanation.
-		
-		Classify as "chit_chat" if:
-		- The query is a greeting, casual banter, joke, or personal/social question.
-		- It contains no clear reference to real-world news or events.
-		
-		Instructions:
-		
-		Respond strictly in the following format (without quotes or explanation):
-		intent|confidence_score
-		
-		Where:
-		- "intent" is either "news" or "chit_chat"
-		- "confidence_score" is a float between 0.0 and 1.0
-		
-		Examples:
-		- news|0.91
-		- chit_chat|0.88
-		
-		Return only a single line in the above format.`, query, context)
+	return fmt.Sprintf(`You are a highly accurate intent classifier for a news AI assistant. Classify user queries into one of two intents: "news" or "chit_chat".
+
+Input:
+Query: "%s"
+User Context: %v
+
+Classification Criteria:
+
+Classify as "news" if:
+- The query requests factual information about current or past events.
+- It concerns companies, people, technologies, locations, or any topic that could appear in news.
+- The user wants updates, summaries, reports, or analyses of occurrences or trends.
+- The query focuses on real-world events, statistics, or official data.
+
+Classify as "chit_chat" if:
+- The query consists of greetings, jokes, social questions, or casual conversation.
+- It seeks opinions, small talk, or non-news-related topics.
+- The query is ambiguous without news context.
+
+Output format (use exact syntax, no extra text):
+
+intent|confidence_score
+
+Examples:
+news|0.95
+chit_chat|0.88
+news|0.75
+chit_chat|0.60
+.`, query, context)
 
 }
 
@@ -473,28 +472,24 @@ func (service *GeminiService) ExtractKeyWords(ctx context.Context, query string,
 }
 
 func (service *GeminiService) buildKeywordExtractionPrompt(query string, context map[string]interface{}) string {
-	return fmt.Sprintf(`You are a keyword extraction agent for a news-focused semantic search engine.
-	
-	Your task:
-	Extract the most important keywords from the user’s query to optimize news retrieval.
-	
-	Query: 
-	"%s"
-	
-	User Context: 
-	%v
-	
-	Instructions:
-	- Focus on extracting high-value **news search terms**.
-	- Prioritize **proper nouns**, **named entities**, **people**, **companies**, **technologies**, **places**, and **events**.
-	- Include **important verbs** or **descriptive phrases** if they significantly impact the meaning (e.g., “IPO”, “bans”, “merger”).
-	- Avoid stopwords, filler phrases, and generic terms (like "news", "tell", "update").
-	
-	Response Format:
-	Return a **comma-separated** list of keywords only. No explanations, no extra formatting.
-	
-	Example output:
-	Nvidia, GPU, AI, Jensen Huang, generative models, chip market`, query, context)
+	return fmt.Sprintf(`You are an expert keyword extraction agent specialized for semantic news search.
+
+Input:
+User Query: "%s"
+User Context: %v
+
+Task:
+- Extract and return the most important keywords and key phrases that optimize news retrieval.
+- Include named entities such as people, organizations, locations, technologies, events.
+- Include impactful verbs or expressions that alter the query meaning, e.g., "ban", "launch", "merger".
+- Exclude stopwords or irrelevant filler words.
+- Avoid generic terms like "news", "update", or repeated words.
+
+Response:
+Return a clean, comma-separated list of keywords only, no additional text.
+Example:
+Tesla, Elon Musk, electric vehicles, Model S, battery technology
+`, query, context)
 
 }
 
@@ -610,64 +605,68 @@ func (service *GeminiService) buildRelevancyAgentPrompt(articles []models.NewsAr
 
 	recentTopicsStr := strings.Join(recentTopics, ", ")
 
-	return fmt.Sprintf(`You are an expert news relevancy evaluator. Analyze the following articles to determine how well they address the user's query.
+	return fmt.Sprintf(`You are a news relevancy assessment AI. Your job is to evaluate a list of articles to determine how well each article addresses the user's query, considering the user's context and recent topics.
 
-		USER QUERY: "%s"
+Input:
 
-		RECENT TOPICS/KEYWORDS: %s
+USER QUERY: "%s"
 
-		ARTICLES TO EVALUATE:
-						[
-							%s
-						]
+RECENT CONTEXT TOPICS: %s
 
-		EVALUATION CRITERIA:
-			1. Does the article directly address the user's question?
-			2. Does it match the user's intent and context?
-			3. Is it recent and informative?
-			4. Is it likely to help answer the user's specific query?
+ARTICLES:  
+[
+%s
+]
 
-		SCORING SCALE:
-			- 0.90–1.00: Direct match, perfectly relevant
-			- 0.80–0.89: Highly relevant, closely addresses query
-			- 0.70–0.79: Moderately relevant, good connection
-			- 0.60–0.69: Somewhat relevant, tangential connection
-			- 0.50–0.59: Weakly relevant, same general topic
-			- < 0.50: Not relevant, different focus
+Evaluation Criteria:
+1. The article must address the user's query directly with factual, relevant content.
+2. Match the user's intent and context to avoid unrelated or metaphorical uses of terms.
+3. Prioritize timely, recent, and credible news coverage.
+4. Evaluate completeness—does the article sufficiently cover the aspects of the query?
+5. Avoid articles that are opinion-based, speculative, or only tangentially related.
+6. Favor articles with informative titles, descriptions, and content.
 
-		TASK:
-			1. Evaluate each article for relevance to the user's query
-			2. Return only articles with relevance score >= 0.7
-			3. Maximum 5 articles in final selection
-			4. If no articles score >= 0.7, return top 3 articles regardless
-			5. Sort by relevance score (highest first)
+Scoring Scale (0.0 - 1.0):
+- 0.90-1.00: Excellent relevance, thorough, factual match.
+- 0.70-0.89: Good relevance, mostly aligned with query.
+- 0.50-0.69: Moderate relevance, partial match.
+- Below 0.50: Low or no relevance.
 
-		RESPONSE FORMAT (JSON only, no additional text):
-				{
-				  "relevant_articles": [
-					{
-					  "id": 0,
-					  "title": "Article Title Here",
-					  "url": "https://article-url.com",
-					  "source": "Source Name",
-					  "author": "Author Name",
-					  "published_at": "2024-01-15T10:30:00Z",
-					  "description": "Article description",
-					  "content": "",
-					  "image_url": "",
-					  "category": "technology",
-					  "relevance_score": 0.95
-					}
-				  ],
-				  "evaluation_summary": {
-					"total_evaluated": 10,
-					"relevant_found": 3,
-					"average_relevance": 0.87,
-					"threshold_used": 0.7
-				  }
-				}
+Task:
+- Assign each article a relevance_score based on the scale above.
+- Return only articles with relevance_score >= 0.4.
+- If no articles meet the threshold, return the top 3 articles by score.
+- Limit the returned list to a maximum of 5 articles.
+- Sort results by relevance_score descending.
 
-Respond with only the JSON object, no markdown formatting.`,
+Response:
+
+Return a JSON object with exactly this structure (no extra text, no explanation):
+
+{
+  "relevant_articles": [
+    {
+      "id": 0,
+      "title": "Article Title Here",
+      "url": "https://article-url.com",
+      "source": "Source Name",
+      "author": "Author Name",
+      "published_at": "2025-07-30T12:00:00Z",
+      "description": "Article description here.",
+      "content": "Article content here.",
+      "image_url": "https://image-url.com",
+      "category": "news_category",
+      "relevance_score": 0.95
+    }
+  ],
+  "evaluation_summary": {
+    "total_evaluated": "",
+    "relevant_found": "",
+    "average_relevance": "",
+    "threshold_used": 0.4
+  }
+}
+`,
 		userQuery, recentTopicsStr, articlesJSON)
 }
 
@@ -700,10 +699,10 @@ func (service *GeminiService) parseRelevantArticlesResponse(response string, ori
 	type RelevancyResponse struct {
 		RelevantArticles  []RelevantArticleResponse `json:"relevant_articles"`
 		EvaluationSummary struct {
-			TotalEvaluated   int `json:"total_evaluated"`
-			RelevantFound    int `json:"relevant_found"`
-			AverageRelevancy int `json:"average_relevancy"`
-			ThresholdUsed    int `json:"threshold_used"`
+			TotalEvaluated   int     `json:"total_evaluated"`
+			RelevantFound    int     `json:"relevant_found"`
+			AverageRelevancy float64 `json:"average_relevancy"`
+			ThresholdUsed    float64 `json:"threshold_used"`
 		} `json:"evaluation_summary"`
 	}
 
@@ -852,7 +851,7 @@ Return only the final summary. Do not include article references, bullet points,
 func (service *GeminiService) AddPersonalityToResponse(ctx context.Context, query string, response string, personality string) (string, error) {
 
 	if personality == "" {
-		return "", fmt.Errorf("No personality to add")
+		personality = "friendly-explainer" // Use default personality
 	}
 
 	var prompt string
@@ -869,7 +868,8 @@ func (service *GeminiService) AddPersonalityToResponse(ctx context.Context, quer
 	} else if personality == "ai-analyst" {
 		prompt = service.buildAIAnalystPrompt(query, response)
 	} else {
-		prompt = service.buildDefaultPersonaPrompt(query, response)
+		// Use friendly-explainer as fallback for unknown personalities
+		prompt = service.buildFriendlyExplainerPrompt(query, response)
 	}
 
 	req := &GenerationRequest{
@@ -1091,7 +1091,7 @@ func (service *GeminiService) buildChitchatPrompt(query string, context map[stri
 }
 
 func (service *GeminiService) HealthCheck(ctx context.Context) error {
-	testCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	testCtx, cancel := context.WithTimeout(ctx, 1000*time.Second)
 	defer cancel()
 
 	var temperature float32 = 0

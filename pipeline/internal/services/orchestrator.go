@@ -196,15 +196,12 @@ func (workflowExecutor *WorkflowExecutor) executeMemoryAgent(ctx context.Context
 			RecentTopics:     []string{},
 			RecentKeywords:   []string{},
 			SessionStartTime: time.Now(),
-			UserPreferences: models.UserPreferences{
-				NewsPersonality: "",
-				FavouriteTopics: []string{},
-				ResponseLength:  "concise",
-			},
-			UpdatedAt: time.Now(),
+			UserPreferences:  workflowExecutor.workflowCtx.ConversationContext.UserPreferences,
+			UpdatedAt:        time.Now(),
 		}
 	}
 
+	conversationContext.UserPreferences = workflowExecutor.workflowCtx.ConversationContext.UserPreferences
 	workflowExecutor.workflowCtx.ConversationContext = *conversationContext
 
 	workflowExecutor.workflowCtx.UpdateAgentStats("memory", models.AgentStats{
@@ -938,7 +935,7 @@ func (workflowExecutor *WorkflowExecutor) getRelevantArticles(ctx context.Contex
 	}
 
 	// Fixed orchestrator code
-	searchResults, err := workflowExecutor.orchestrator.chromaDBService.SearchSimilarArticles(ctx, queryEmbedding, 10, nil)
+	searchResults, err := workflowExecutor.orchestrator.chromaDBService.SearchSimilarArticles(ctx, queryEmbedding, 100, nil)
 	if err != nil {
 		return fmt.Errorf("ChromaDB Semantic Search Failed: %w", err)
 	}

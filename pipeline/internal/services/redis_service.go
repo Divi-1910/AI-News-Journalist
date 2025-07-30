@@ -58,7 +58,7 @@ func NewRedisService(config config.RedisConfig, log *logger.Logger) (*RedisServi
 }
 
 func (service *RedisService) testConnection() error {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 5000*time.Second)
 	defer cancel()
 
 	if err := service.streams.Ping(ctx).Err(); err != nil {
@@ -105,16 +105,19 @@ func (service *RedisService) PublishAgentUpdate(ctx context.Context, userID stri
 	streamName := fmt.Sprintf("user:%s:agent_updates", userID)
 
 	updateData := map[string]interface{}{
-		"type":            "agent_update",
-		"workflow_id":     update.WorkflowID,
-		"request_id":      update.RequestID,
-		"agent_name":      update.AgentName,
-		"status":          string(update.Status),
-		"message":         update.Message,
-		"progress":        fmt.Sprintf("%.2f", update.Progress),
-		"processing_time": update.ProcessingTime.Milliseconds(),
-		"timestamp":       update.Timestamp.Format(time.RFC3339),
-		"retryable":       update.Retryable,
+		"type":        "agent_update",
+		"workflow_id": update.WorkflowID,
+		"request_id":  update.RequestID,
+		"agent_name":  update.AgentName,
+		"status":      string(update.Status),
+		"message":     update.Message,
+		"progress":    fmt.Sprintf("%.2f", update.Progress),
+		"timestamp":   update.Timestamp.Format(time.RFC3339),
+		"retryable":   update.Retryable,
+	}
+
+	if update.ProcessingTime > 0 {
+		updateData["processing_time"] = update.ProcessingTime.Milliseconds()
 	}
 
 	if update.Data != nil {

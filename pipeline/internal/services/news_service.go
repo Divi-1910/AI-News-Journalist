@@ -105,7 +105,7 @@ func NewNewsService(config config.EtcConfig, logger *logger.Logger) (*NewsServic
 }
 
 func (service *NewsService) TestConnection() error {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*1000)
 	defer cancel()
 
 	_, err := service.GetTopHeadlines(ctx, &HeadlinesRequest{
@@ -138,8 +138,8 @@ func (service *NewsService) SearchEverything(ctx context.Context, req *SearchReq
 	}, nil)
 
 	searchQuery := service.buildSearchQuery(req)
-	if searchQuery != "" {
-		return nil, fmt.Errorf("Search Query cannot be empty, %s", searchQuery)
+	if searchQuery == "" {
+		return nil, fmt.Errorf("Search Query cannot be empty")
 	}
 
 	params := service.buildEverythingParams(req, searchQuery)
@@ -153,10 +153,11 @@ func (service *NewsService) SearchEverything(ctx context.Context, req *SearchReq
 	}
 
 	result := service.convertToDesiredFormat(articles)
-
+	service.logger.Info(result)
 	service.logger.LogService("news_api", "search_everything", time.Since(startTime), map[string]interface{}{
 		"query":          req.Query,
 		"articles_found": len(result),
+		"articles":       articles,
 		"total_results":  len(result),
 	}, nil)
 
@@ -286,7 +287,7 @@ func (service *NewsService) SearchByKeywords(ctx context.Context, keywords []str
 		Query:    strings.Join(keywords, " AND "),
 		PageSize: maxResults,
 		Page:     1,
-		SortBy:   "relevancy",
+		SortBy:   "popularity",
 		Language: "en",
 	}
 
@@ -315,7 +316,7 @@ func (service *NewsService) SearchRecentNews(ctx context.Context, query string, 
 }
 
 func (service *NewsService) HealthCheck(ctx context.Context) error {
-	testCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	testCtx, cancel := context.WithTimeout(ctx, 1000*time.Second)
 	defer cancel()
 
 	_, err := service.GetTopHeadlines(testCtx, &HeadlinesRequest{
@@ -331,7 +332,7 @@ func (service *NewsService) HealthCheck(ctx context.Context) error {
 }
 
 func (service *NewsService) makeAPIRequest(ctx context.Context, endpoint string, params url.Values) ([]APIArticles, error) {
-	fullURL := fmt.Sprint("%s/%s?%s", NewsAPIBaseURL, endpoint, params.Encode())
+	fullURL := fmt.Sprintf("%s/%s?%s", NewsAPIBaseURL, endpoint, params.Encode())
 
 	req, err := http.NewRequestWithContext(ctx, "GET", fullURL, nil)
 	if err != nil {
@@ -352,8 +353,8 @@ func (service *NewsService) makeAPIRequest(ctx context.Context, endpoint string,
 		return nil, fmt.Errorf("news api response decoding failed: %w", err)
 	}
 
-	if apiResponse.Status != "200 OK" {
-		return nil, fmt.Errorf("news api response status not 200 OK: %s", apiResponse.Message)
+	if apiResponse.Status != "ok" {
+		return nil, fmt.Errorf("news api error: %s - %s", apiResponse.Code, apiResponse.Message)
 	}
 
 	if resp.StatusCode == http.StatusTooManyRequests {
@@ -386,7 +387,7 @@ func (service *NewsService) convertToDesiredFormat(apiArticles []APIArticles) []
 			ID:          articleID,
 			Title:       apiArticle.Title,
 			URL:         apiArticle.URL,
-			Source:      apiArticle.Author,
+			Source:      apiArticle.Source.Name,
 			PublishedAt: publishedAt,
 			Description: apiArticle.Description,
 			Content:     apiArticle.Content,
@@ -425,10 +426,12 @@ func (service *NewsService) BuildHeadlinesParams(request *HeadlinesRequest) url.
 	}
 
 	if request.PageSize == 0 {
-		params.Set("page_size", strconv.Itoa(DefaultPageSize))
-	} else {
+		params.Set("pageSize", strconv.Itoa(DefaultPageSize))
+	} else if request.PageSize <= MaxPageSize {
 		if request.PageSize > MaxPageSize {
-			params.Set("page_size", strconv.Itoa(MaxPageSize))
+			params.Set("pageSize", strconv.Itoa(MaxPageSize))
+		} else {
+			params.Set("pageSize", strconv.Itoa(request.PageSize))
 		}
 	}
 

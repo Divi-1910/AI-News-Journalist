@@ -9,17 +9,18 @@ import (
 )
 
 type Config struct {
-	Environment string       `json:"environment"`
-	HTTP        HTTPConfig   `json:"http"`
-	Redis       RedisConfig  `json:"redis"`
-	Ollama      OllamaConfig `json:"ollama"`
-	Gemini      GeminiConfig `json:"gemini"`
-	Log         LogConfig    `json:"log"`
-	Etc         EtcConfig    `json:"etc"`
+	Environment string        `json:"environment"`
+	HTTP        HTTPConfig    `json:"http"`
+	Redis       RedisConfig   `json:"redis"`
+	Ollama      OllamaConfig  `json:"ollama"`
+	Gemini      GeminiConfig  `json:"gemini"`
+	Scraper     ScraperConfig `json:"scraper"`
+	Log         LogConfig     `json:"log"`
+	Etc         EtcConfig     `json:"etc"`
 }
 
 type HTTPConfig struct {
-	Port         string        `json:"port"`
+	Port         int           `json:"port"`
 	ReadTimeout  time.Duration `json:"read_timeout"`
 	WriteTimeout time.Duration `json:"write_timeout"`
 	IdleTimeout  time.Duration `json:"idle_timeout"`
@@ -55,8 +56,9 @@ type GeminiConfig struct {
 }
 
 type EtcConfig struct {
-	NewsApiKey  string `json:"news_api_key"`
-	ChromaDBURL string `json:"chroma_db_url"`
+	NewsApiKey         string `json:"news_api_key"`
+	ChromaDBURL        string `json:"chroma_db_url"`
+	ChromaDBCollection string `json:"chroma_db_collection"`
 }
 
 type LogConfig struct {
@@ -70,6 +72,13 @@ type LogConfig struct {
 	Compress   bool   `json:"compress"`
 }
 
+type ScraperConfig struct {
+	UserAgent      string        `json:"user_agent"`
+	Timeout        time.Duration `json:"timeout"`
+	MaxConcurrency int           `json:"max_concurrency"`
+	RetryAttempts  int           `json:"retry_attempts"`
+}
+
 func Load() (*Config, error) {
 	err := godotenv.Load()
 	if err != nil {
@@ -80,7 +89,7 @@ func Load() (*Config, error) {
 	config := &Config{
 		Environment: getEnv("ENVIRONMENT", "development"),
 		HTTP: HTTPConfig{
-			Port:         getEnv("PORT", "8080"),
+			Port:         getInt("PORT", 8080),
 			ReadTimeout:  getDuration("HTTP_READ_TIMEOUT", 30*time.Second),
 			WriteTimeout: getDuration("HTTP_WRITE_TIMEOUT", 30*time.Second),
 			IdleTimeout:  getDuration("HTTP_IDLE_TIMEOUT", 120*time.Second),
@@ -122,8 +131,15 @@ func Load() (*Config, error) {
 			Compress:   getBool("LOG_COMPRESS", true),
 		},
 		Etc: EtcConfig{
-			NewsApiKey:  getEnv("NEWS_API_KEY", ""),
-			ChromaDBURL: getEnv("CHROMA_DB_URL", "http://localhost:9000"),
+			NewsApiKey:         getEnv("NEWS_API_KEY", ""),
+			ChromaDBURL:        getEnv("CHROMA_DB_URL", "http://localhost:9000"),
+			ChromaDBCollection: getEnv("CHROMA_DB_COLLECTION", "anya-news-articles"),
+		},
+		Scraper: ScraperConfig{
+			UserAgent:      getEnv("SCRAPER_USER_AGENT", "Anya-ai-pipeline/1.0"),
+			Timeout:        getDuration("SCRAPER_TIMEOUT", 30*time.Second),
+			MaxConcurrency: getInt("SCRAPER_MAX_CONCURRENCY", 5),
+			RetryAttempts:  getInt("SCRAPER_RETRY_ATTEMPTS", 3),
 		},
 	}
 
@@ -141,7 +157,7 @@ func validateConfig(config *Config) error {
 	if config.Etc.NewsApiKey == "" {
 		return fmt.Errorf("News API Key is required")
 	}
-	if config.HTTP.Port == "" {
+	if config.HTTP.Port == 0 {
 		return fmt.Errorf("HTTP port is required")
 	}
 

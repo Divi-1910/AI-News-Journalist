@@ -4,7 +4,7 @@ import asyncio
 import json
 from models.user import (
     User, ChatMessage, MessageType, AgentUpdate, AgentType, 
-    AgentStatus, NewsSource, LongTermConversationContext
+    AgentStatus, NewsSource
 )
 from core.database import get_database
 import logging

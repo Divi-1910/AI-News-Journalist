@@ -233,12 +233,6 @@ async def get_chat_stats(current_user: User = Depends(get_current_user)):
             "last_activity": user.chat.last_activity.isoformat(),
             "average_response_time_ms": user.chat.average_response_time_ms,
             "total_agent_updates": user.chat.total_agent_updates,
-            "long_term_context": {
-                "recent_topics_count": len(user.chat.LongTermContext.recent_topics),
-                "mentioned_entities_count": len(user.chat.LongTermContext.mentioned_entities),
-                "recent_keywords_count": len(user.chat.LongTermContext.recent_keywords),
-                "knowledge_base_entries": len(user.chat.LongTermContext.knowledge_base)
-            }
         }
         
         return {

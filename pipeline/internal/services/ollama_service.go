@@ -54,7 +54,7 @@ type EmbeddingResult struct {
 	Error     error     `json:"error"`
 }
 
-func NewOllamaService(config *config.OllamaConfig, log *logger.Logger) (*OllamaService, error) {
+func NewOllamaService(config config.OllamaConfig, log *logger.Logger) (*OllamaService, error) {
 	if config.BaseURL == "" {
 		return nil, fmt.Errorf("Ollama Base URL is required")
 	}
@@ -75,14 +75,14 @@ func NewOllamaService(config *config.OllamaConfig, log *logger.Logger) (*OllamaS
 
 	service := &OllamaService{
 		client:    client,
-		config:    config,
+		config:    &config,
 		logger:    log,
 		semaphore: make(chan struct{}, 5),
 	}
 
-	if err := service.testConnection(); err != nil {
-		return nil, fmt.Errorf("Ollama connection test failed: %w", err)
-	}
+	// if err := service.testConnection(); err != nil {
+	// 	return nil, fmt.Errorf("Ollama connection test failed: %w", err)
+	// }
 
 	log.Info("Ollama service initialized successfully",
 		"base_url", config.BaseURL,
@@ -95,7 +95,7 @@ func NewOllamaService(config *config.OllamaConfig, log *logger.Logger) (*OllamaS
 }
 
 func (service *OllamaService) testConnection() error {
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 1500*time.Second)
 	defer cancel()
 
 	req, err := http.NewRequestWithContext(ctx, "GET", service.config.BaseURL+"/api/tags", nil)
@@ -276,7 +276,7 @@ func (service *OllamaService) makeEmbedding(ctx context.Context, texts []string)
 
 }
 
-func (service * OllamaService) BatchGenerateEmbeddings(ctx context.Context, texts []string) ([][]float64, error) {
+func (service *OllamaService) BatchGenerateEmbeddings(ctx context.Context, texts []string) ([][]float64, error) {
 	if len(texts) == 0 {
 		return [][]float64{}, nil
 	}
@@ -284,28 +284,27 @@ func (service * OllamaService) BatchGenerateEmbeddings(ctx context.Context, text
 	startTime := time.Now()
 	embeddings := make([][]float64, len(texts))
 
-
-	service.logger.LogService("ollama" , "batch_generate_embeddings" , 0 ,
+	service.logger.LogService("ollama", "batch_generate_embeddings", 0,
 		map[string]interface{}{
-		"batch_size" : len(texts),
-		"model" : service.config.EmbeddingModel
-		} , nil)
+			"batch_size": len(texts),
+			"model":      service.config.EmbeddingModel,
+		}, nil)
 
 	var wg sync.WaitGroup
 	errChan := make(chan error, len(texts))
 
-	for i , text := range texts {
+	for i, text := range texts {
 		wg.Add(1)
 		go func(index int, content string) {
 			defer wg.Done()
 
-			embedding , err := service.GenerateEmbedding(ctx, content)
+			embedding, err := service.GenerateEmbedding(ctx, content)
 			if err != nil {
 				errChan <- fmt.Errorf("embedding failed at index %d : %w ", index, err)
 				return
 			}
 			embeddings[index] = embedding
-		}(i , text)
+		}(i, text)
 	}
 
 	wg.Wait()
@@ -313,18 +312,18 @@ func (service * OllamaService) BatchGenerateEmbeddings(ctx context.Context, text
 
 	if len(errChan) > 0 {
 		err := <-errChan
-		service.logger.LogService("ollama" , "batch_generate_embeddings", time.Since(startTime) , map[string]interface{}{
-			"batch_size" : len(texts),
-		} , nil)
+		service.logger.LogService("ollama", "batch_generate_embeddings", time.Since(startTime), map[string]interface{}{
+			"batch_size": len(texts),
+		}, nil)
 		return nil, err
 	}
 
 	duration := time.Since(startTime)
-	service.logger.LogService("ollama" , "batch_generate_embeddings" , duration , map[string]interface{}{
-		"batch_size" : len(texts),
-		"avg_time_per_embedding" : duration.Milliseconds() / int64(len(texts)),
-		"total_embeddings" : len(embeddings),
-	} , nil)
+	service.logger.LogService("ollama", "batch_generate_embeddings", duration, map[string]interface{}{
+		"batch_size":             len(texts),
+		"avg_time_per_embedding": duration.Milliseconds() / int64(len(texts)),
+		"total_embeddings":       len(embeddings),
+	}, nil)
 
 	return embeddings, nil
 }

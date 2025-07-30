@@ -8,15 +8,18 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"time"
 )
 
 type ChromaDBService struct {
-	client  *http.Client
-	baseURL *url.URL
-	logger  *logger.Logger
+	client   *http.Client
+	baseURL  *url.URL
+	logger   *logger.Logger
+	tenant   string
+	database string
 }
 
 type Collection struct {
@@ -40,18 +43,19 @@ type QueryRequest struct {
 }
 
 type QueryResponse struct {
-	IDs        []string                   `json:"ids"`
+	IDs        [][]string                 `json:"ids"`
 	Documents  [][]string                 `json:"documents"`
 	Metadatas  [][]map[string]interface{} `json:"metadatas"`
 	Distances  [][]float64                `json:"distances"`
 	Embeddings [][][]float64              `json:"embeddings"`
+	Include    []string                   `json:"include"`
 }
 
 type AddRequest struct {
-	Documents  []string                 `json:"documents"`
+	Documents  []string                 `json:"documents,omitempty"`
 	Metadatas  []map[string]interface{} `json:"metadatas,omitempty"`
 	IDs        []string                 `json:"ids"`
-	Embeddings [][]float64              `json:"embeddings,omitempty"`
+	Embeddings [][]float64              `json:"embeddings"`
 }
 
 type SearchResult struct {
@@ -63,6 +67,8 @@ type SearchResult struct {
 const (
 	NewsCollectionName = "news_articles"
 	DefaultTopK        = 8
+	DefaultTenant      = "default_tenant"
+	DefaultDatabase    = "default_database"
 )
 
 func NewChromaDBService(config config.EtcConfig, log *logger.Logger) (*ChromaDBService, error) {
@@ -86,9 +92,11 @@ func NewChromaDBService(config config.EtcConfig, log *logger.Logger) (*ChromaDBS
 	}
 
 	service := &ChromaDBService{
-		client:  client,
-		baseURL: baseURL,
-		logger:  log,
+		client:   client,
+		baseURL:  baseURL,
+		logger:   log,
+		tenant:   DefaultTenant,
+		database: DefaultDatabase,
 	}
 
 	if err := service.initialize(); err != nil {
@@ -119,7 +127,7 @@ func (service *ChromaDBService) initialize() error {
 }
 
 func (service *ChromaDBService) HealthCheck(ctx context.Context) error {
-	url := fmt.Sprintf("%s/api/v1/heartbeat", service.baseURL)
+	url := fmt.Sprintf("%s/api/v2/healthcheck", service.baseURL)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
@@ -165,9 +173,15 @@ func (service *ChromaDBService) createOrGetCollection(ctx context.Context, colle
 }
 
 func (service *ChromaDBService) createCollection(ctx context.Context, collectionName Collection) error {
-	url := fmt.Sprintf("%s/api/v1/collections/%s", service.baseURL)
+	url := fmt.Sprintf("%s/api/v2/tenants/%s/databases/%s/collections", service.baseURL, service.tenant, service.database)
 
-	jsonData, err := json.Marshal(collectionName)
+	payload := map[string]interface{}{
+		"name":         collectionName.ID,
+		"metadata":     collectionName.Metadata,
+		"get_or_create": true,
+	}
+
+	jsonData, err := json.Marshal(payload)
 	if err != nil {
 		return fmt.Errorf("Failed to marshall collection: %w", err)
 	}
@@ -192,33 +206,47 @@ func (service *ChromaDBService) createCollection(ctx context.Context, collection
 }
 
 func (service *ChromaDBService) getCollection(ctx context.Context, collectionName string) (*Collection, error) {
-	url := fmt.Sprintf("%s/api/v1/collections/%s", service.baseURL, collectionName)
+	// First get collections list to find the collection ID
+	url := fmt.Sprintf("%s/api/v2/tenants/%s/databases/%s/collections", service.baseURL, service.tenant, service.database)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return nil, fmt.Errorf("Failed to create chromadb get collection request: %w", err)
+		return nil, fmt.Errorf("Failed to create chromadb get collections request: %w", err)
 	}
 	resp, err := service.client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("Failed chromadb get collection request: %w", err)
+		return nil, fmt.Errorf("Failed chromadb get collections request: %w", err)
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode == http.StatusNotFound {
-		return nil, fmt.Errorf("Collection %s not found", collectionName)
-	}
-
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("Failed chromadb get collection request: invalid status code: %d", resp.StatusCode)
+		return nil, fmt.Errorf("Failed chromadb get collections request: invalid status code: %d", resp.StatusCode)
 	}
 
-	var collection Collection
-	if err := json.NewDecoder(resp.Body).Decode(&collection); err != nil {
-		return nil, fmt.Errorf("Failed to chromadb decode collection request: %w", err)
+	var collections []map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&collections); err != nil {
+		return nil, fmt.Errorf("Failed to decode collections response: %w", err)
 	}
 
-	return &collection, nil
+	// Find collection by name
+	for _, col := range collections {
+		if name, ok := col["name"].(string); ok && name == collectionName {
+			collection := &Collection{
+				ID: name,
+			}
+			if metadata, ok := col["metadata"].(map[string]interface{}); ok {
+				collection.Metadata = make(map[string]string)
+				for k, v := range metadata {
+					if str, ok := v.(string); ok {
+						collection.Metadata[k] = str
+					}
+				}
+			}
+			return collection, nil
+		}
+	}
 
+	return nil, fmt.Errorf("Collection %s not found", collectionName)
 }
 
 func (service *ChromaDBService) StoreArticles(ctx context.Context, articles []models.NewsArticle, embeddings [][]float64) error {
@@ -245,8 +273,14 @@ func (service *ChromaDBService) StoreArticles(ctx context.Context, articles []mo
 	for i, article := range articles {
 		documents[i] = fmt.Sprintf("%s . %s ", article.Title, article.Description)
 
+		// Generate ID if empty
+		articleID := article.ID
+		if articleID == "" {
+			articleID = fmt.Sprintf("article_%d_%d", time.Now().Unix(), i)
+		}
+
 		metadatas[i] = map[string]interface{}{
-			"id":              article.ID,
+			"id":              articleID,
 			"title":           article.Title,
 			"url":             article.URL,
 			"source":          article.Source,
@@ -257,7 +291,7 @@ func (service *ChromaDBService) StoreArticles(ctx context.Context, articles []mo
 			"stored_at":       time.Now().Format(time.RFC3339),
 		}
 
-		ids[i] = article.ID
+		ids[i] = articleID
 
 	}
 
@@ -287,7 +321,13 @@ func (service *ChromaDBService) StoreArticles(ctx context.Context, articles []mo
 }
 
 func (service *ChromaDBService) addToCollection(ctx context.Context, collectionName string, addRequest AddRequest) error {
-	url := fmt.Sprintf("%s/api/v1/collections/%s/add", service.baseURL, collectionName)
+	// Get collection ID first
+	collectionID, err := service.getCollectionID(ctx, collectionName)
+	if err != nil {
+		return fmt.Errorf("Failed to get collection ID: %w", err)
+	}
+
+	url := fmt.Sprintf("%s/api/v2/tenants/%s/databases/%s/collections/%s/add", service.baseURL, service.tenant, service.database, collectionID)
 	jsonData, err := json.Marshal(addRequest)
 	if err != nil {
 		return fmt.Errorf("Failed to marshall add request: %w", err)
@@ -303,7 +343,8 @@ func (service *ChromaDBService) addToCollection(ctx context.Context, collectionN
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		return fmt.Errorf("Failed add to collection request: invalid status code: %d", resp.StatusCode)
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("Failed add to collection request: status %d, body: %s", resp.StatusCode, string(body))
 	}
 	return nil
 }
@@ -417,6 +458,40 @@ func getString(metadata map[string]interface{}, key string) string {
 	return ""
 }
 
+func (service *ChromaDBService) getCollectionID(ctx context.Context, collectionName string) (string, error) {
+	url := fmt.Sprintf("%s/api/v2/tenants/%s/databases/%s/collections", service.baseURL, service.tenant, service.database)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return "", fmt.Errorf("Failed to create get collections request: %w", err)
+	}
+
+	resp, err := service.client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("Failed get collections request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("Failed get collections request: invalid status code: %d", resp.StatusCode)
+	}
+
+	var collections []map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&collections); err != nil {
+		return "", fmt.Errorf("Failed to decode collections response: %w", err)
+	}
+
+	for _, col := range collections {
+		if name, ok := col["name"].(string); ok && name == collectionName {
+			if id, ok := col["id"].(string); ok {
+				return id, nil
+			}
+		}
+	}
+
+	return "", fmt.Errorf("Collection %s not found", collectionName)
+}
+
 func (service *ChromaDBService) DeleteArticles(ctx context.Context, articlesIDs []string) error {
 	if len(articlesIDs) == 0 {
 		return fmt.Errorf("no articles to delete")
@@ -429,7 +504,13 @@ func (service *ChromaDBService) DeleteArticles(ctx context.Context, articlesIDs 
 		"collection":     NewsCollectionName,
 	}, nil)
 
-	url := fmt.Sprintf("%s/api/v1/collections/%s/delete", service.baseURL, NewsCollectionName)
+	// Get collection ID first
+	collectionID, err := service.getCollectionID(ctx, NewsCollectionName)
+	if err != nil {
+		return fmt.Errorf("Failed to get collection ID: %w", err)
+	}
+
+	url := fmt.Sprintf("%s/api/v2/tenants/%s/databases/%s/collections/%s/delete", service.baseURL, service.tenant, service.database, collectionID)
 
 	deleteRequest := map[string]interface{}{
 		"ids": articlesIDs,
@@ -493,8 +574,25 @@ func (cdb *ChromaDBService) SearchBySource(ctx context.Context, queryEmbedding [
 }
 
 func (service *ChromaDBService) queryCollection(ctx context.Context, collectionName string, queryRequest QueryRequest) (*QueryResponse, error) {
-	url := fmt.Sprintf("%s/api/v1/collections/%s/query", service.baseURL, collectionName)
-	jsonData, err := json.Marshal(queryRequest)
+	// Get collection ID first
+	collectionID, err := service.getCollectionID(ctx, collectionName)
+	if err != nil {
+		return nil, fmt.Errorf("Failed to get collection ID: %w", err)
+	}
+
+	url := fmt.Sprintf("%s/api/v2/tenants/%s/databases/%s/collections/%s/query", service.baseURL, service.tenant, service.database, collectionID)
+	
+	// Convert v1 query request to v2 format
+	v2Request := map[string]interface{}{
+		"query_embeddings": queryRequest.QueryEmbeddings,
+		"n_results":        queryRequest.NResults,
+		"include":          queryRequest.Include,
+	}
+	if queryRequest.Where != nil {
+		v2Request["where"] = queryRequest.Where
+	}
+
+	jsonData, err := json.Marshal(v2Request)
 	if err != nil {
 		return nil, fmt.Errorf("Failed to marshall query: %w", err)
 	}

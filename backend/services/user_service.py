@@ -111,7 +111,7 @@ class UserService:
             completion_data = {
                 "news_personality": onboarding_data["news_personality"],
                 "favorite_topics": onboarding_data.get("favorite_topics", []),
-                "content_length": onboarding_data.get("content_length", "medium"),
+                "content_length": onboarding_data.get("content_length", "brief"),
                 "onboarding_completed": True,
             }
             

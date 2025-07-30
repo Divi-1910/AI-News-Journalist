@@ -6,11 +6,12 @@ import (
 )
 
 type WorkflowRequest struct {
-	UserID     string            `json:"user_id" binding:"required"`
-	Query      string            `json:"query" binding:"required"`
-	WorkflowID string            `json:"workflow_id" binding:"required"`
-	Context    map[string]string `json:"context,omitempty"`
-	Metadata   map[string]any    `json:"metadata,omitempty"`
+	UserID          string            `json:"user_id" binding:"required"`
+	Query           string            `json:"query" binding:"required"`
+	WorkflowID      string            `json:"workflow_id" binding:"required"`
+	UserPreferences UserPreferences   `json:"user_preferences" binding:"required"`
+	Context         map[string]string `json:"context,omitempty"`
+	Metadata        map[string]any    `json:"metadata,omitempty"`
 }
 
 type WorkflowResponse struct {
@@ -134,12 +135,8 @@ func NewWorkflowContext(req WorkflowRequest, requestID string) *WorkflowContext 
 			LastIntent:       "",
 			MessageCount:     0,
 			SessionStartTime: time.Now(),
-			UserPreferences: UserPreferences{
-				NewsPersonality: "",
-				FavouriteTopics: []string{},
-				ResponseLength:  "",
-			},
-			UpdatedAt: time.Now(),
+			UserPreferences:  req.UserPreferences,
+			UpdatedAt:        time.Now(),
 		},
 		Metadata: make(map[string]any),
 		ProcessingStats: ProcessingStats{
