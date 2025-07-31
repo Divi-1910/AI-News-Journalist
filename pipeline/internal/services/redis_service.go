@@ -21,14 +21,13 @@ type RedisService struct {
 
 func NewRedisService(config config.RedisConfig, log *logger.Logger) (*RedisService, error) {
 	streamsOpt, err := redis.ParseURL(config.StreamsURL)
-
 	if err != nil {
-		return nil, fmt.Errorf("invalid Redis Streams URL : %w", err)
+		return nil, fmt.Errorf("invalid Redis Streams URL: %w", err)
 	}
 
 	memoryOpt, err := redis.ParseURL(config.MemoryURL)
 	if err != nil {
-		return nil, fmt.Errorf("invalid Redis Memory URL : %w", err)
+		return nil, fmt.Errorf("invalid Redis Memory URL: %w", err)
 	}
 
 	configureRedisOptions(streamsOpt, config)
@@ -48,25 +47,25 @@ func NewRedisService(config config.RedisConfig, log *logger.Logger) (*RedisServi
 		return nil, fmt.Errorf("connection to Redis failed: %w", err)
 	}
 
-	log.Info("Redis Service Initialized Successfully",
+	log.Info("Enhanced Conversational Redis Service Initialized Successfully",
 		"streams_url", config.StreamsURL,
 		"memory_url", config.MemoryURL,
-		"pool_size", config.PoolSize)
+		"pool_size", config.PoolSize,
+		"features", []string{"conversation_exchanges", "enhanced_context", "user_conversations"})
 
 	return service, nil
-
 }
 
 func (service *RedisService) testConnection() error {
-	ctx, cancel := context.WithTimeout(context.Background(), 5000*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second) // Fixed: was 5000 seconds
 	defer cancel()
 
 	if err := service.streams.Ping(ctx).Err(); err != nil {
-		return fmt.Errorf("connection to Redis failed: %w", err)
+		return fmt.Errorf("connection to Redis Streams failed: %w", err)
 	}
 
 	if err := service.memory.Ping(ctx).Err(); err != nil {
-		return fmt.Errorf("connection to Redis failed: %w", err)
+		return fmt.Errorf("connection to Redis Memory failed: %w", err)
 	}
 
 	service.logger.Info("Redis Service Connection Tested Successfully")
@@ -86,12 +85,11 @@ func (service *RedisService) Close() error {
 	}
 
 	if len(errors) > 0 {
-		return fmt.Errorf("Error closing Redis connections : %v", errors)
+		return fmt.Errorf("Error closing Redis connections: %v", errors)
 	}
 
 	service.logger.Info("Redis Service Closed Successfully")
 	return nil
-
 }
 
 func configureRedisOptions(opt *redis.Options, cfg config.RedisConfig) {
@@ -154,29 +152,52 @@ func (service *RedisService) PublishAgentUpdate(ctx context.Context, userID stri
 		"agent_name":  update.AgentName,
 		"status":      update.Status,
 		"workflow_id": update.WorkflowID,
-	}).Debug("Publish Agent Update Successfully")
+	}).Debug("Published Agent Update Successfully")
 
 	return nil
 }
 
-func (service *RedisService) GetConversationContext(ctx context.Context, UserID string) (*models.ConversationContext, error) {
-	key := fmt.Sprintf("user:%s:conversation_context", UserID)
+// Enhanced: Get conversation context with full conversation exchanges
+func (service *RedisService) GetConversationContext(ctx context.Context, userID string) (*models.ConversationContext, error) {
+	key := fmt.Sprintf("user:%s:conversation_context", userID)
 	startTime := time.Now()
+
+	// Check if conversation context exists
+	exists, err := service.memory.Exists(ctx, key).Result()
+	if err != nil {
+		service.logger.LogService("redis", "get_conversation_context", time.Since(startTime), map[string]interface{}{
+			"user_id": userID,
+			"key":     key,
+		}, err)
+		return nil, models.NewExternalError("REDIS_EXISTS_FAILED", "Failed to check conversation context existence").WithCause(err)
+	}
+
+	// If conversation context doesn't exist, return error so orchestrator can initialize new context
+	if exists == 0 {
+		return nil, models.NewExternalError("CONVERSATION_CONTEXT_NOT_FOUND", "Conversation context not found for user")
+	}
 
 	data, err := service.memory.HGetAll(ctx, key).Result()
 	if err != nil {
 		service.logger.LogService("redis", "get_conversation_context", time.Since(startTime), map[string]interface{}{
-			"user_id": UserID,
+			"user_id": userID,
 			"key":     key,
 		}, err)
 		return nil, models.NewExternalError("REDIS_GET_FAILED", "Failed to get conversation context").WithCause(err)
 	}
 
+	// Initialize conversation context with enhanced fields
 	context := &models.ConversationContext{
-		UserID:           UserID,
-		RecentTopics:     []string{},
+		UserID:           userID,
+		Exchanges:        []models.ConversationExchange{},
+		TotalExchanges:   0,
+		CurrentTopics:    []string{},
 		RecentKeywords:   []string{},
+		LastQuery:        "",
+		LastResponse:     "",
+		LastIntent:       "",
 		SessionStartTime: time.Now(),
+		LastActiveTime:   time.Now(),
 		MessageCount:     0,
 		UserPreferences: models.UserPreferences{
 			NewsPersonality: "",
@@ -186,8 +207,13 @@ func (service *RedisService) GetConversationContext(ctx context.Context, UserID 
 		UpdatedAt: time.Now(),
 	}
 
-	if err := parseJSONField(data, "recent_topics", &context.RecentTopics); err != nil {
-		service.logger.WithError(err).Warn("Failed to parse recent_topics")
+	// Parse enhanced conversation fields
+	if err := parseJSONField(data, "exchanges", &context.Exchanges); err != nil {
+		service.logger.WithError(err).Warn("Failed to parse conversation exchanges")
+	}
+
+	if err := parseJSONField(data, "current_topics", &context.CurrentTopics); err != nil {
+		service.logger.WithError(err).Warn("Failed to parse current_topics")
 	}
 
 	if err := parseJSONField(data, "recent_keywords", &context.RecentKeywords); err != nil {
@@ -198,8 +224,20 @@ func (service *RedisService) GetConversationContext(ctx context.Context, UserID 
 		service.logger.WithError(err).Warn("Failed to parse user_preferences")
 	}
 
+	// Parse simple string fields
 	context.LastQuery = data["last_query"]
+	context.LastResponse = data["last_response"]
 	context.LastIntent = data["last_intent"]
+	context.LastReferencedTopic = data["last_referenced_topic"]
+	context.LastSummary = data["last_summary"]
+	context.ContextSummary = data["context_summary"]
+
+	// Parse numeric fields
+	if totalExchanges := data["total_exchanges"]; totalExchanges != "" {
+		if count, err := strconv.Atoi(totalExchanges); err == nil {
+			context.TotalExchanges = count
+		}
+	}
 
 	if msgCount := data["message_count"]; msgCount != "" {
 		if count, err := strconv.Atoi(msgCount); err == nil {
@@ -207,75 +245,113 @@ func (service *RedisService) GetConversationContext(ctx context.Context, UserID 
 		}
 	}
 
-	if startTime := data["session_start_time"]; startTime != "" {
-		if parsed, err := time.Parse(time.RFC3339, startTime); err == nil {
+	// Parse timestamp fields
+	if sessionStartTime := data["session_start_time"]; sessionStartTime != "" {
+		if parsed, err := time.Parse(time.RFC3339, sessionStartTime); err == nil {
 			context.SessionStartTime = parsed
 		}
 	}
 
+	if lastActiveTime := data["last_active_time"]; lastActiveTime != "" {
+		if parsed, err := time.Parse(time.RFC3339, lastActiveTime); err == nil {
+			context.LastActiveTime = parsed
+		}
+	}
+
+	if updatedAt := data["updated_at"]; updatedAt != "" {
+		if parsed, err := time.Parse(time.RFC3339, updatedAt); err == nil {
+			context.UpdatedAt = parsed
+		}
+	}
+
 	service.logger.LogService("redis", "get_conversation_context", time.Since(startTime), map[string]interface{}{
-		"user_id":        UserID,
-		"topics_count":   len(context.RecentTopics),
-		"keywords_count": len(context.RecentKeywords),
-		"message_count":  context.MessageCount,
+		"user_id":         userID,
+		"exchanges_count": len(context.Exchanges),
+		"topics_count":    len(context.CurrentTopics),
+		"keywords_count":  len(context.RecentKeywords),
+		"message_count":   context.MessageCount,
+		"total_exchanges": context.TotalExchanges,
 	}, nil)
 
 	return context, nil
+}
 
+// Enhanced: Store conversation context with full conversation exchanges
+func (service *RedisService) StoreConversationContext(ctx context.Context, userID string, conversationContext *models.ConversationContext) error {
+	key := fmt.Sprintf("user:%s:conversation_context", userID)
+	startTime := time.Now()
+
+	data := make(map[string]interface{})
+
+	// Serialize complex fields to JSON
+	if exchangesJSON, err := json.Marshal(conversationContext.Exchanges); err == nil {
+		data["exchanges"] = string(exchangesJSON)
+	} else {
+		service.logger.WithError(err).Warn("Failed to marshal conversation exchanges")
+	}
+
+	if topicsJSON, err := json.Marshal(conversationContext.CurrentTopics); err == nil {
+		data["current_topics"] = string(topicsJSON)
+	}
+
+	if keywordsJSON, err := json.Marshal(conversationContext.RecentKeywords); err == nil {
+		data["recent_keywords"] = string(keywordsJSON)
+	}
+
+	if prefsJSON, err := json.Marshal(conversationContext.UserPreferences); err == nil {
+		data["user_preferences"] = string(prefsJSON)
+	}
+
+	// Store simple string fields
+	data["last_query"] = conversationContext.LastQuery
+	data["last_response"] = conversationContext.LastResponse
+	data["last_intent"] = conversationContext.LastIntent
+	data["last_referenced_topic"] = conversationContext.LastReferencedTopic
+	data["last_summary"] = conversationContext.LastSummary
+	data["context_summary"] = conversationContext.ContextSummary
+
+	// Store numeric fields
+	data["total_exchanges"] = strconv.Itoa(conversationContext.TotalExchanges)
+	data["message_count"] = strconv.Itoa(conversationContext.MessageCount)
+
+	// Store timestamp fields
+	data["session_start_time"] = conversationContext.SessionStartTime.Format(time.RFC3339)
+	data["last_active_time"] = conversationContext.LastActiveTime.Format(time.RFC3339)
+	data["updated_at"] = time.Now().Format(time.RFC3339)
+
+	// Use pipeline for atomic operations
+	pipe := service.memory.Pipeline()
+	pipe.HMSet(ctx, key, data)
+	pipe.Expire(ctx, key, 7*24*time.Hour) // Extended to 7 days for conversation continuity
+
+	_, err := pipe.Exec(ctx)
+	if err != nil {
+		service.logger.LogService("redis", "store_conversation_context", time.Since(startTime), map[string]interface{}{
+			"user_id": userID,
+			"key":     key,
+		}, err)
+		return models.NewExternalError("REDIS_STORE_FAILED", "Failed to store conversation context").WithCause(err)
+	}
+
+	service.logger.LogService("redis", "store_conversation_context", time.Since(startTime), map[string]interface{}{
+		"user_id":         userID,
+		"exchanges_count": len(conversationContext.Exchanges),
+		"message_count":   conversationContext.MessageCount,
+		"total_exchanges": conversationContext.TotalExchanges,
+	}, nil)
+
+	return nil
+}
+
+// Enhanced: Update conversation context (alias for backward compatibility)
+func (service *RedisService) UpdateConversationContext(ctx context.Context, conversationContext *models.ConversationContext) error {
+	return service.StoreConversationContext(ctx, conversationContext.UserID, conversationContext)
 }
 
 func parseJSONField(data map[string]string, field string, target interface{}) error {
 	if value, exists := data[field]; exists && value != "" {
 		return json.Unmarshal([]byte(value), target)
 	}
-	return nil
-}
-
-func (service *RedisService) UpdateConversationContext(ctx context.Context, conversationContext *models.ConversationContext) error {
-	key := fmt.Sprintf("user:%s:conversation_context", conversationContext.UserID)
-	startTime := time.Now()
-
-	data := make(map[string]interface{})
-
-	topicsJSON, err := json.Marshal(conversationContext.RecentTopics)
-	if err == nil {
-		data["recent_topics"] = string(topicsJSON)
-	}
-
-	keywordsJSON, err := json.Marshal(conversationContext.RecentKeywords)
-	if err == nil {
-		data["recent_keywords"] = string(keywordsJSON)
-	}
-
-	prefsJSON, err := json.Marshal(conversationContext.UserPreferences)
-	if err == nil {
-		data["user_preferences"] = string(prefsJSON)
-	}
-
-	data["last_query"] = conversationContext.LastQuery
-	data["last_intent"] = conversationContext.LastIntent
-	data["message_count"] = strconv.Itoa(conversationContext.MessageCount)
-	data["session_start_time"] = conversationContext.SessionStartTime.Format(time.RFC3339)
-	data["updated_at"] = time.Now().Format(time.RFC3339)
-
-	pipe := service.memory.Pipeline()
-	pipe.HMSet(ctx, key, data)
-	pipe.Expire(ctx, key, 24*time.Hour)
-
-	_, err = pipe.Exec(ctx)
-	if err != nil {
-		service.logger.LogService("redis", "update_conversation_context", time.Since(startTime), map[string]interface{}{
-			"user_id": conversationContext.UserID,
-			"key":     key,
-		}, err)
-		return models.NewExternalError("REDIS_UPDATE_FAILED", "Failed to Update conversation context").WithCause(err)
-	}
-
-	service.logger.LogService("redis", "update_conversation_context", time.Since(startTime), map[string]interface{}{
-		"user_id":       conversationContext.UserID,
-		"message_count": conversationContext.MessageCount,
-	}, nil)
-
 	return nil
 }
 
@@ -290,7 +366,7 @@ func (service *RedisService) ClearUserContext(ctx context.Context, userID string
 				"user_id": userID,
 				"key":     key,
 			}, err)
-		return models.NewExternalError("REDIS_DELETE_FAILED", "Failed to Clear conversation context").WithCause(err)
+		return models.NewExternalError("REDIS_DELETE_FAILED", "Failed to clear conversation context").WithCause(err)
 	}
 
 	service.logger.LogService("redis", "clear_user_context", time.Since(startTime), map[string]interface{}{
@@ -298,7 +374,6 @@ func (service *RedisService) ClearUserContext(ctx context.Context, userID string
 	}, nil)
 
 	return nil
-
 }
 
 func (service *RedisService) StoreWorkflowState(ctx context.Context, workflowCtx *models.WorkflowContext) error {
@@ -314,13 +389,16 @@ func (service *RedisService) StoreWorkflowState(ctx context.Context, workflowCtx
 	if err != nil {
 		service.logger.LogService("redis", "store_workflow_state", time.Since(startTime), map[string]interface{}{
 			"workflow_id": workflowCtx.ID,
+			"user_id":     workflowCtx.UserID,
 			"key":         key,
 		}, err)
 		return models.NewExternalError("REDIS_STORE_FAILED", "Failed to store workflow state").WithCause(err)
 	}
 
 	service.logger.LogService("redis", "store_workflow_state", time.Since(startTime), map[string]interface{}{
-		"workflow_id": workflowCtx.ID,
+		"workflow_id":  workflowCtx.ID,
+		"user_id":      workflowCtx.UserID,
+		"is_follow_up": workflowCtx.IsFollowUp,
 	}, nil)
 
 	return nil
@@ -345,19 +423,19 @@ func (service *RedisService) GetWorkflowState(ctx context.Context, workflowID st
 	var workflowContext models.WorkflowContext
 	err = json.Unmarshal([]byte(stateJSON), &workflowContext)
 	if err != nil {
-		return nil, models.NewInternalError("DESERIALZATION_FAILED", "Failed to serialize workflow state").WithCause(err)
+		return nil, models.NewInternalError("DESERIALIZATION_FAILED", "Failed to deserialize workflow state").WithCause(err) // Fixed typo
 	}
 
 	service.logger.LogService("redis", "get_workflow_state", time.Since(startTime), map[string]interface{}{
-		"workflow_id": workflowID,
+		"workflow_id":  workflowID,
+		"user_id":      workflowContext.UserID,
+		"is_follow_up": workflowContext.IsFollowUp,
 	}, nil)
 
 	return &workflowContext, nil
-
 }
 
 func (service *RedisService) HealthCheck(ctx context.Context) error {
-
 	if err := service.memory.Ping(ctx).Err(); err != nil {
 		return fmt.Errorf("Memory Connection Unhealthy: %w", err)
 	}
@@ -365,6 +443,39 @@ func (service *RedisService) HealthCheck(ctx context.Context) error {
 	if err := service.streams.Ping(ctx).Err(); err != nil {
 		return fmt.Errorf("Streams Connection Unhealthy: %w", err)
 	}
-	return nil
 
+	return nil
+}
+
+// New: Get conversation statistics for monitoring
+func (service *RedisService) GetConversationStats(ctx context.Context, userID string) (map[string]interface{}, error) {
+	key := fmt.Sprintf("user:%s:conversation_context", userID)
+
+	exists, err := service.memory.Exists(ctx, key).Result()
+	if err != nil {
+		return nil, err
+	}
+
+	if exists == 0 {
+		return map[string]interface{}{
+			"exists":  false,
+			"user_id": userID,
+		}, nil
+	}
+
+	data, err := service.memory.HMGet(ctx, key, "total_exchanges", "message_count", "session_start_time", "last_active_time").Result()
+	if err != nil {
+		return nil, err
+	}
+
+	stats := map[string]interface{}{
+		"exists":             true,
+		"user_id":            userID,
+		"total_exchanges":    data[0],
+		"message_count":      data[1],
+		"session_start_time": data[2],
+		"last_active_time":   data[3],
+	}
+
+	return stats, nil
 }

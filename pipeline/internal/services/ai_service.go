@@ -261,29 +261,29 @@ func (service *GeminiService) EnhanceQueryForSearch(ctx context.Context, query s
 		"context_keys":   getMapKeys(context),
 	}, nil)
 
-	prompt := service.buildQueryEnhancementPrompt(query, context)
+	prompt := service.buildQueryExpansionPrompt(query, context)
 
-	fmt.Println("enhancement agent prompt : ")
+	fmt.Println("Query Expansion for Keyword Extraction Prompt:")
 	fmt.Println(prompt)
 	fmt.Println()
 
 	req := &GenerationRequest{
 		Prompt:          prompt,
 		Temperature:     &[]float32{0.3}[0],
-		SystemRole:      "You are an Expert Query Optimization Specialist for Semantic News Search",
+		SystemRole:      "You are an Expert Query Expansion Specialist for Enhanced Keyword Extraction",
 		MaxTokens:       500,
 		DisableThinking: false,
 	}
 
 	resp, err := service.GenerateContent(ctx, req)
 	if err != nil {
-		return nil, fmt.Errorf("Query Enchancement failed : %w", err)
+		return nil, fmt.Errorf("Query Enhancement failed: %w", err)
 	}
 
 	result := service.parseQueryEnhancementResponse(resp.Content, query)
 	result.ProcessingTime = time.Since(start)
 
-	fmt.Println("Enhancement Result : ")
+	fmt.Println("Query Expansion Result:")
 	fmt.Println(result)
 	fmt.Println()
 
@@ -293,7 +293,105 @@ func (service *GeminiService) EnhanceQueryForSearch(ctx context.Context, query s
 	}, nil)
 
 	return result, nil
+}
 
+func (service *GeminiService) buildQueryExpansionPrompt(query string, context map[string]interface{}) string {
+	conversationContext := ""
+	if convCtx, ok := context["conversation_context"].(models.ConversationContext); ok {
+		if len(convCtx.CurrentTopics) > 0 {
+			conversationContext += fmt.Sprintf("Recent Topics Discussed: %s\n", strings.Join(convCtx.CurrentTopics, ", "))
+		}
+		if len(convCtx.RecentKeywords) > 0 {
+			conversationContext += fmt.Sprintf("Recent Keywords Used: %s\n", strings.Join(convCtx.RecentKeywords, ", "))
+		}
+		if convCtx.LastQuery != "" {
+			conversationContext += fmt.Sprintf("Previous Query: %s\n", convCtx.LastQuery)
+		}
+	}
+
+	userPrefs := ""
+	if prefs, ok := context["user_preferences"].(models.UserPreferences); ok {
+		userPrefs = fmt.Sprintf("User's Favorite Topics: %s, Preferred News Style: %s",
+			strings.Join(prefs.FavouriteTopics, ", "), prefs.NewsPersonality)
+	}
+
+	return fmt.Sprintf(`You are an expert query expansion specialist optimized for maximizing news article retrieval using AND-based keyword search.
+
+CRITICAL CONSTRAINT: Keywords will be joined with AND operators. ALL keywords must be present in each retrieved article. More keywords = exponentially fewer results.
+
+---
+🎯 ORIGINAL USER QUERY: "%s"
+
+📝 CONVERSATION CONTEXT:
+%s
+
+👤 USER PREFERENCES: %s
+
+---
+🔍 SYSTEMATIC QUERY ANALYSIS:
+
+**STEP 1: IDENTIFY CORE COMPONENTS**
+Decompose the query into essential elements using the 5W+H framework:
+- WHO (Person/Organization): The main actor/entity
+- WHAT (Action/Event): The core action or event  
+- WHERE (Location): Geographic scope (country-level preferred)
+- WHEN (Timeframe): If specified, use broad temporal terms
+- WHY/HOW (Context): Essential background context
+
+**STEP 2: STRATEGIC KEYWORD SELECTION**
+Select 4-6 keywords using this priority hierarchy:
+
+1. **MANDATORY CORE (2-3 keywords)**: Terms that MUST appear in relevant articles
+   - Primary entity (person, company, country)
+   - Main action/event/topic
+   
+2. **CONTEXTUAL AMPLIFIERS (1-2 keywords)**: Terms that improve relevance without being too restrictive
+   - Industry/domain context
+   - Broad action category
+   
+3. **OPTIONAL SPECIFICITY (0-1 keyword)**: Only if query explicitly mentions specific details
+   - Specific policies, dates, or technical terms
+
+**STEP 3: ANTI-PATTERNS TO AVOID**
+❌ **Entity Redundancy**: Don't use "Biden" AND "Biden administration"
+❌ **Geographic Over-specification**: Use "China" not "Beijing" + "Chinese government"  
+❌ **Synonym Stacking**: Don't use "trade" + "commerce" + "economic"
+❌ **Technical Jargon**: Avoid unless explicitly mentioned in query
+❌ **Time Fragmentation**: Use "recent" not "2024" + "this year" + "latest"
+
+**STEP 4: VALIDATION CHECK**
+Ask yourself: "Would a typical news article about this topic contain ALL these keywords?"
+If answer is NO → Remove least essential keywords
+
+---
+📊 OPTIMIZATION EXAMPLES:
+
+**Financial Queries:**
+- "Tesla stock problems" → "Tesla stock price decline"
+- "Why did Meta fire employees?" → "Meta layoffs employees"
+
+**Political Queries:**
+- "Biden climate change policy" → "Biden climate policy"  
+- "Trump legal issues 2024" → "Trump legal charges"
+
+**International Relations:**
+- "China trade tensions with US" → "China US trade tensions"
+- "Russia Ukraine war updates" → "Russia Ukraine conflict"
+
+**Technology:**
+- "OpenAI ChatGPT regulations" → "OpenAI ChatGPT regulation"
+- "Apple iPhone sales decline" → "Apple iPhone sales"
+
+**Business/Economy:**
+- "Federal Reserve interest rates decision" → "Federal Reserve interest rates"
+- "Oil prices rising inflation" → "oil prices inflation"
+
+---
+🎯 RESPONSE FORMAT:
+ENHANCED_QUERY: <4-6 strategic keywords optimized for maximum AND-based retrieval>
+
+Remember: Success = Finding multiple relevant articles, not achieving keyword perfection.`,
+		query, conversationContext, userPrefs)
 }
 
 func (service *GeminiService) parseQueryEnhancementResponse(response string, originalQuery string) *QueryEnhancementResult {
@@ -318,30 +416,6 @@ func (service *GeminiService) parseQueryEnhancementResponse(response string, ori
 
 	return result
 
-}
-
-func (service *GeminiService) buildQueryEnhancementPrompt(query string, context map[string]interface{}) string {
-	return fmt.Sprintf(`You are an expert query enhancement assistant for an AI-powered news search engine. Your goal is to transform a user's natural language query into an optimized, detailed query that improves search relevance.
-
-Given:
-- ORIGINAL_USER_QUERY: "%s"
-- USER_CONTEXT: %v
-
-Your Tasks:
-1. Infer the user’s main intent and topic focus.
-2. Add explicit temporal qualifiers if missing (e.g., "latest," "recent," specific years or months).
-3. Expand ambiguous terms, acronyms, and abbreviations into full, common forms (e.g., "AI" to "artificial intelligence").
-4. Insert important named entities, people, organizations, locations, and events related to the query.
-5. Add synonyms and related keywords to capture broader search space.
-6. Avoid inventing details or hallucinating information.
-7. Generate the following outputs:
-
-Format your response EXACTLY as below:
-
-ENHANCED_QUERY: <A detailed, semantically rich query to use in semantic search>
-
-Only respond with the above sections in the given format; do not add any extra commentary.
-`, query, context)
 }
 
 func getMapKeys(mp map[string]interface{}) []string {
@@ -387,7 +461,6 @@ func (service *GeminiService) ClassifyIntent(ctx context.Context, query string, 
 	}, nil)
 
 	return intent, confidence, nil
-
 }
 
 func (service *GeminiService) buildIntentClassificationPrompt(query string, context map[string]interface{}) string {
@@ -420,7 +493,6 @@ chit_chat|0.88
 news|0.75
 chit_chat|0.60
 .`, query, context)
-
 }
 
 func (service *GeminiService) parseIntentResponse(response string) (string, float64) {
@@ -446,7 +518,132 @@ func (service *GeminiService) parseIntentResponse(response string) (string, floa
 	}
 
 	return "chit_chat", 0.4
+}
 
+// Intent Classification Agent
+func (service *GeminiService) ClassifyIntentWithContext(ctx context.Context, query string, conversationHistory []models.ConversationExchange) (*IntentClassificationResult, error) {
+	prompt := service.buildEnhancedClassificationPrompt(query, conversationHistory)
+
+	fmt.Println("Enhanced Intent Classification Prompt:")
+	fmt.Println(prompt)
+	fmt.Println()
+
+	req := &GenerationRequest{
+		Prompt:          prompt,
+		Temperature:     &[]float32{0.2}[0], // Low temperature for consistent classification
+		SystemRole:      "You are an expert conversational intent classifier for a news AI assistant",
+		MaxTokens:       512,
+		DisableThinking: false,
+	}
+
+	resp, err := service.GenerateContent(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("enhanced intent classification failed: %w", err)
+	}
+
+	fmt.Println("Enhanced Intent Classification Result:")
+	fmt.Println(resp.Content)
+	fmt.Println()
+
+	result := service.parseEnhancedIntentResponse(resp.Content)
+
+	service.logger.LogAgent("", "classifier", "classify_intent_with_context", resp.ProcessingTime, map[string]interface{}{
+		"query":                  query,
+		"intent":                 result.Intent,
+		"confidence":             result.Confidence,
+		"referenced_topic":       result.ReferencedTopic,
+		"conversation_exchanges": len(conversationHistory),
+		"tokens_used":            resp.TokensUsed,
+	}, nil)
+
+	return result, nil
+}
+
+func (service *GeminiService) buildEnhancedClassificationPrompt(query string, history []models.ConversationExchange) string {
+	historyContext := ""
+	if len(history) > 0 {
+		// Include last 2-3 exchanges for context
+		recentHistory := history
+		if len(history) > 3 {
+			recentHistory = history[len(history)-3:]
+		}
+
+		for i, exchange := range recentHistory {
+			historyContext += fmt.Sprintf("Exchange %d:\nUser: %s\nAnya: %s\n\n", i+1, exchange.UserQuery, exchange.AIResponse)
+		}
+	}
+	return fmt.Sprintf(`Classify the user's intent based on their query and conversation history.
+
+	CONVERSATION HISTORY:
+	%s
+
+	CURRENT QUERY: "%s" 
+
+	CLASSIFICATION RULES:
+
+	1. **NEW_NEWS_QUERY** - Choose this if:
+   		- User asks about a completely new topic/event
+   		- Query is self-contained and doesn't reference previous discussion
+   		- User wants fresh news analysis
+   		- Examples: "What's happening with Tesla?", "Why are gas prices rising?"
+
+	2. **FOLLOW_UP_DISCUSSION** - Choose this if:
+   		- Query references previous conversation ("this", "that", "it", "the situation")
+		- User wants clarification, more details, or different perspective on previous topic
+   		- User asks related questions about the same topic
+   		- Examples: "Tell me more about this", "How does this affect me?", "What's your opinion?"
+
+	3. **CHITCHAT** - Choose this if:
+   		- General conversation, greetings, personal questions
+   		- User testing the AI or making casual conversation
+   		- Non-news related queries
+
+	RESPONSE FORMAT:
+	{
+    	"intent": "NEW_NEWS_QUERY|FOLLOW_UP_DISCUSSION|CHITCHAT",
+    	"confidence": 0.95,
+    	"reasoning": "Brief explanation",
+    	"referenced_topic": "topic from history if follow-up",
+    	"enhanced_query": "self-contained version if needed"
+	}
+
+	Respond only with the JSON.`, historyContext, query)
+}
+
+func (service *GeminiService) parseEnhancedIntentResponse(response string) *IntentClassificationResult {
+	result := &IntentClassificationResult{
+		Intent:     "CHITCHAT",
+		Confidence: 0.5,
+		Reasoning:  "Default fallback",
+	}
+
+	response = strings.TrimSpace(response)
+
+	// Remove code blocks if present
+	if strings.HasPrefix(response, "```") {
+		response = strings.TrimPrefix(response, "```json")
+		response = strings.TrimSuffix(response, "```")
+		response = strings.TrimSpace(response)
+	}
+
+	if err := json.Unmarshal([]byte(response), result); err != nil {
+		service.logger.WithError(err).Warn("Failed to parse enhanced intent JSON, using fallback")
+
+		// Fallback parsing
+		lowerResponse := strings.ToLower(response)
+		if strings.Contains(lowerResponse, "new_news_query") || strings.Contains(lowerResponse, "news") {
+			result.Intent = "NEW_NEWS_QUERY"
+			result.Confidence = 0.8
+		} else if strings.Contains(lowerResponse, "follow_up_discussion") || strings.Contains(lowerResponse, "follow") {
+			result.Intent = "FOLLOW_UP_DISCUSSION"
+			result.Confidence = 0.8
+		} else {
+			result.Intent = "CHITCHAT"
+			result.Confidence = 0.6
+		}
+	}
+
+	return result
 }
 
 func containsAny(text string, list []string) bool {
@@ -456,6 +653,122 @@ func containsAny(text string, list []string) bool {
 		}
 	}
 	return false
+}
+
+// Generate Contextual Response for Follow-up Discussions
+func (service *GeminiService) GenerateContextualResponse(ctx context.Context, query string, conversationHistory []models.ConversationExchange, referencedTopic string, userPreferences models.UserPreferences, context map[string]interface{}) (string, error) {
+	prompt := service.buildContextualResponsePrompt(query, conversationHistory, referencedTopic, userPreferences, context)
+
+	fmt.Println("Contextual Response Prompt:")
+	fmt.Println(prompt)
+	fmt.Println()
+
+	var temp float32 = 0.7
+
+	req := &GenerationRequest{
+		Prompt:          prompt,
+		Temperature:     &temp,
+		SystemRole:      "You are Anya, a knowledgeable AI news assistant providing contextual follow-up responses",
+		MaxTokens:       2048,
+		DisableThinking: false,
+	}
+
+	resp, err := service.GenerateContent(ctx, req)
+	if err != nil {
+		return "", fmt.Errorf("contextual response generation failed: %w", err)
+	}
+
+	fmt.Println("Contextual Response Result:")
+	fmt.Println(resp.Content)
+	fmt.Println()
+
+	service.logger.LogAgent("", "chitchat", "generate_contextual_response", resp.ProcessingTime, map[string]interface{}{
+		"query":                  query,
+		"referenced_topic":       referencedTopic,
+		"conversation_exchanges": len(conversationHistory),
+		"user_personality":       userPreferences.NewsPersonality,
+		"response_length":        len(resp.Content),
+		"tokens_used":            resp.TokensUsed,
+	}, nil)
+
+	return resp.Content, nil
+}
+
+func (service *GeminiService) buildContextualResponsePrompt(query string, history []models.ConversationExchange, referencedTopic string, userPreferences models.UserPreferences, context map[string]interface{}) string {
+	var relevantExchange *models.ConversationExchange
+	if len(history) > 0 {
+		relevantExchange = &history[len(history)-1]
+	}
+
+	contextSection := ""
+	if relevantExchange != nil {
+		contextSection = fmt.Sprintf(`
+PREVIOUS DISCUSSION CONTEXT:
+User Previously Asked: "%s"
+My Previous Response: "%s"
+Referenced Topic: "%s"
+`, relevantExchange.UserQuery, relevantExchange.AIResponse, referencedTopic)
+	}
+
+	personalityGuidance := ""
+	switch userPreferences.NewsPersonality {
+	case "youthful-trendspotter":
+		personalityGuidance = "Use engaging, energetic language that resonates with younger audiences. Be authentic and relatable."
+	case "calm-anchor":
+		personalityGuidance = "Maintain a professional, measured tone suitable for broadcast news delivery."
+	case "investigative-reporter":
+		personalityGuidance = "Provide analytical depth and ask probing questions to encourage deeper discussion."
+	case "ai-analyst":
+		personalityGuidance = "Focus on strategic implications and technical analysis with professional terminology."
+	case "global-correspondent":
+		personalityGuidance = "Provide international perspective with culturally aware and diplomatic language."
+	default:
+		personalityGuidance = "Be conversational and informative, making complex topics accessible."
+	}
+
+	// Handle additional context
+	additionalContext := ""
+	if context != nil && len(context) > 0 {
+		additionalContext = "ADDITIONAL CONTEXT:\n"
+		for key, value := range context {
+			additionalContext += fmt.Sprintf("- %s: %v\n", key, value)
+		}
+	}
+
+	return fmt.Sprintf(`You are Anya, a warm and knowledgeable AI news assistant. The user is following up on a previous conversation.
+
+%s
+
+CURRENT FOLLOW-UP QUERY: "%s"
+
+USER PREFERENCES:
+- News Personality: %s
+- Favorite Topics: %s
+
+PERSONALITY GUIDANCE: %s
+
+%s
+
+INSTRUCTIONS:
+1. **Reference Previous Context**: Acknowledge what we discussed before
+2. **Build on Previous Response**: Expand, clarify, or provide different perspectives
+3. **Maintain Personality**: Stay true to the user's preferred news personality
+4. **Provide Value**: Answer their follow-up question thoroughly
+5. **Natural Flow**: Make it feel like a continued conversation, not a new topic
+
+RESPONSE APPROACH:
+- If they want clarification: "When I mentioned [X] earlier, what I meant was..."
+- If they want more details: "To build on what we discussed about [topic]..."
+- If they want personal opinion: "Based on the situation we talked about..."
+- If they want implications: "Thinking about [previous topic], here's how it affects..."
+
+Respond as Anya in a natural, conversational way that builds on our previous discussion.`,
+		contextSection,
+		query,
+		userPreferences.NewsPersonality,
+		strings.Join(userPreferences.FavouriteTopics, ", "),
+		personalityGuidance,
+		additionalContext)
 }
 
 // Keyword Extraction agent
@@ -1244,69 +1557,126 @@ Provide a comprehensive response that directly serves the user's information nee
 }
 
 // Chit Chat Agent
+// Enhanced ChitChat Response Generation with Conversation Context
 func (service *GeminiService) GenerateChitChatResponse(ctx context.Context, query string, context map[string]interface{}) (string, error) {
-	prompt := service.buildChitchatPrompt(query, context)
+	// Extract conversation history from context if available
+	var history []models.ConversationExchange
+	if convCtx, ok := context["conversation_context"].(models.ConversationContext); ok {
+		history = convCtx.Exchanges
+	}
+
+	prompt := service.buildEnhancedChitchatPrompt(query, context, history)
+
+	var temp float32 = 0.9
 
 	req := &GenerationRequest{
 		Prompt:          prompt,
-		Temperature:     &[]float32{0.9}[0],
-		SystemRole:      "You are a Anya , a friendly and Knowledge AI News assistant",
+		Temperature:     &temp,
+		SystemRole:      "You are Anya, a friendly and knowledgeable AI News assistant",
 		MaxTokens:       1024,
 		DisableThinking: true,
 	}
 
 	resp, err := service.GenerateContent(ctx, req)
 	if err != nil {
-		return "", fmt.Errorf("Chit Chat Generation Failed: %v", err)
+		return "", fmt.Errorf("ChitChat Generation Failed: %v", err)
 	}
 
 	service.logger.LogAgent("", "chitchat", "generate_response", resp.ProcessingTime,
 		map[string]interface{}{
-			"query":       query,
-			"response":    resp.Content,
-			"tokens_used": resp.TokensUsed,
+			"query":                  query,
+			"response":               resp.Content,
+			"conversation_exchanges": len(history),
+			"tokens_used":            resp.TokensUsed,
 		}, nil)
 
 	return resp.Content, nil
-
 }
 
-func (service *GeminiService) buildChitchatPrompt(query string, context map[string]interface{}) string {
-	return fmt.Sprintf(`You are Anya — an intelligent, warm, and engaging AI news assistant with a distinct personality.
+func (service *GeminiService) buildEnhancedChitchatPrompt(query string, context map[string]interface{}, history []models.ConversationExchange) string {
+	conversationContext := ""
+	messageCount := 0
+
+	// Extract basic context info
+	if convCtx, ok := context["conversation_context"].(models.ConversationContext); ok {
+		messageCount = convCtx.MessageCount
+
+		if len(convCtx.CurrentTopics) > 0 {
+			conversationContext += fmt.Sprintf("Recent topics we've discussed: %s\n", strings.Join(convCtx.CurrentTopics, ", "))
+		}
+	} else {
+		// Fallback to old context format
+		if topics, ok := context["recent_topics"].([]string); ok && len(topics) > 0 {
+			conversationContext += fmt.Sprintf("Recent topics: %s\n", strings.Join(topics, ", "))
+		}
+		if count, ok := context["message_count"].(int); ok {
+			messageCount = count
+		}
+	}
+
+	userPrefs := ""
+	if prefs, ok := context["user_preferences"].(models.UserPreferences); ok {
+		userPrefs = fmt.Sprintf("News personality preference: %s, Favorite topics: %s",
+			prefs.NewsPersonality, strings.Join(prefs.FavouriteTopics, ", "))
+	}
+
+	// Format conversation history properly
+	formattedHistory := ""
+	if len(history) > 0 {
+		formattedHistory = "DETAILED CONVERSATION HISTORY:\n"
+		// Show last 3-5 exchanges for context
+		startIdx := 0
+		if len(history) > 5 {
+			startIdx = len(history) - 5
+		}
+
+		for i := startIdx; i < len(history); i++ {
+			exchange := history[i]
+			formattedHistory += fmt.Sprintf("Exchange %d:\n", i+1)
+			formattedHistory += fmt.Sprintf("  User: %s\n", exchange.UserQuery)
+			formattedHistory += fmt.Sprintf("  Anya: %s\n\n", exchange.AIResponse)
+		}
+	} else {
+		formattedHistory = "This is our first conversation.\n"
+	}
+
+	return fmt.Sprintf(`You are Anya — a warm, witty, and friendly AI news assistant with perfect conversational memory.
+
+The user isn't asking about current events right now. Instead, they want to have a casual or light-hearted conversation.
 
 ---
-💬 USER MESSAGE: "%s"
-🧠 CONTEXT: %v
+🗣️ Current User Message:
+"%s"
+
+🧠 Basic Context:
+%s
+
+👤 User Preferences: %s
+💬 Total Messages: %d
+
+📝 %s
 
 ---
-🎯 RESPONSE STRATEGY:
+🎯 CRITICAL INSTRUCTIONS:
+1. **REMEMBER EVERYTHING**: You have access to our full conversation history above. Use it!
+2. **Reference specific details**: If the user mentioned their name, preferences, or anything personal, remember and use it
+3. **Answer questions about our conversation**: If they ask "What's my name?" or "What did I say earlier?", refer to the history
+4. **Be contextually aware**: Build on previous exchanges naturally
+5. **Maintain personality**: Stay friendly, engaging, and conversational
+6. **Show memory**: Demonstrate that you remember our conversation by referencing specific things
 
-**PERSONALITY TRAITS:**
-- Genuinely curious and intellectually engaged
-- Warm but not overly casual
-- Knowledgeable about current events and trends
-- Emotionally intelligent and context-aware
-- Subtly helpful without being pushy
+EXAMPLES OF GOOD MEMORY USAGE:
+- If user said "My name is John" before, and now asks "What's my name?", respond: "Your name is John! You told me that when we were introducing ourselves."
+- If they ask about something they mentioned before, reference it specifically
+- Build on topics or jokes from previous exchanges
 
-**CONVERSATION GUIDELINES:**
-1. **Read the Mood**: Adapt your tone to match their energy and intent
-2. **Be Authentically Helpful**: If they seem confused or need direction, gently offer assistance
-3. **Show Interest**: Ask thoughtful follow-up questions when appropriate
-4. **Stay Relevant**: Connect responses to news/current events when it makes natural sense
-5. **Acknowledge Context**: Reference previous conversations or their interests if relevant
-6. **Keep it Natural**: Avoid robotic responses or excessive enthusiasm
-
-**RESPONSE TYPES:**
-- **Casual Questions**: Answer naturally, maybe with a gentle transition to news topics
-- **Personal Sharing**: Respond empathetically, relate to broader themes if appropriate
-- **Seeking Help**: Offer specific assistance with news research or explanations
-- **Testing/Joking**: Play along appropriately while maintaining your helpful nature
-
-**LENGTH**: Keep responses conversational (2-4 sentences typically). Match their investment level.
-
-**AVOID**: Generic responses, excessive emojis, robotic language, ignoring context
-
-Respond as Anya with genuine engagement:`, query, context)
+---
+💬 Respond as Anya with full memory of our conversation history:`,
+		query,
+		conversationContext,
+		userPrefs,
+		messageCount,
+		formattedHistory)
 }
 
 func (service *GeminiService) HealthCheck(ctx context.Context) error {

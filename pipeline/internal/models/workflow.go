@@ -24,44 +24,71 @@ type WorkflowResponse struct {
 }
 
 type WorkflowContext struct {
-	ID        string         `json:"id"`
-	UserID    string         `json:"user_id"`
-	RequestID string         `json:"request_id"`
-	Query     string         `json:"query"`
-	Status    WorkflowStatus `json:"status"`
-	StartTime time.Time      `json:"start_time"`
-	EndTime   *time.Time     `json:"end_time,omitempty"`
-
-	Intent   string        `json:"intent,omitempty"`
-	Keywords []string      `json:"keywords,omitempty"`
-	Articles []NewsArticle `json:"articles,omitempty"`
-	Summary  string        `json:"summary,omitempty"`
-	Response string        `json:"response,omitempty"`
-
-	ConversationContext ConversationContext `json:"conversation_context"`
-
-	Metadata        map[string]any  `json:"metadata,omitempty"`
-	ProcessingStats ProcessingStats `json:"processing_stats,omitempty"`
+	// Workflow Identification
+	ID            string `json:"id"`
+	UserID        string `json:"user_id"`
+	SessionID     string `json:"session_id"`
+	RequestID     string `json:"request_id"`
+	OriginalQuery string `json:"original_query"`
+	EnhancedQuery string `json:"enhanced_query"`
+	// Workflow State
+	Status               WorkflowStatus      `json:"status"`
+	StartTime            time.Time           `json:"start_time"`
+	EndTime              *time.Time          `json:"end_time,omitempty"`
+	Intent               string              `json:"intent,omitempty"`
+	IntentConfidence     float64             `json:"intent_confidence,omitempty"`
+	Keywords             []string            `json:"keywords,omitempty"`
+	Articles             []NewsArticle       `json:"articles,omitempty"`
+	Summary              string              `json:"summary,omitempty"`
+	Response             string              `json:"response,omitempty"`
+	ConversationContext  ConversationContext `json:"conversation_context"`
+	IsFollowUp           bool                `json:"is_follow_up"`
+	ReferencedExchangeID string              `json:"referenced_exchange_id,omitempty"`
+	ReferencedTopic      string              `json:"referenced_topic,omitempty"`
+	AgentExecutions      []AgentExecution    `json:"agent_executions,omitempty"`
+	ProcessingStats      ProcessingStats     `json:"processing_stats"`
+	Metadata             map[string]any      `json:"metadata,omitempty"`
 }
 
 type ConversationContext struct {
-	UserID           string          `json:"user_id"`
-	RecentTopics     []string        `json:"recent_topics"`
-	RecentKeywords   []string        `json:"recent_keywords"`
-	LastQuery        string          `json:"last_query"`
-	LastIntent       string          `json:"last_intent"`
-	MessageCount     int             `json:"message_count"`
-	SessionStartTime time.Time       `json:"session_start_time"`
-	UserPreferences  UserPreferences `json:"user_preferences"`
-	LastResponses    []string        `json:"last_responses"`
-	UpdatedAt        time.Time       `json:"updated_at"`
+	SessionID           string                 `json:"session_id"`
+	UserID              string                 `json:"user_id"`
+	Exchanges           []ConversationExchange `json:"exchanges"`
+	TotalExchanges      int                    `json:"total_exchanges"`
+	CurrentTopics       []string               `json:"current_topics"`
+	RecentKeywords      []string               `json:"recent_keywords"`
+	LastQuery           string                 `json:"last_query"`
+	LastResponse        string                 `json:"last_response"`
+	LastIntent          string                 `json:"last_intent"`
+	LastReferencedTopic string                 `json:"last_referenced_topic,omitempty"`
+	LastSummary         string                 `json:"last_summary,omitempty"`
+	SessionStartTime    time.Time              `json:"session_start_time"`
+	LastActiveTime      time.Time              `json:"last_active_time"`
+	MessageCount        int                    `json:"message_count"`
+	UserPreferences     UserPreferences        `json:"user_preferences"`
+	ContextSummary      string                 `json:"context_summary,omitempty"` // Brief summary of conversation so far
+	UpdatedAt           time.Time              `json:"updated_at"`
+}
+
+type ConversationExchange struct {
+	ID           string         `json:"id"`
+	Timestamp    time.Time      `json:"timestamp"`
+	UserQuery    string         `json:"user_query"`
+	AIResponse   string         `json:"ai_response"`
+	Intent       string         `json:"intent"`
+	QueryType    string         `json:"query_type"`
+	KeyTopics    []string       `json:"key_topics"`
+	KeyEntities  []string       `json:"key_entities"`
+	Keywords     []string       `json:"keywords"`
+	ArticleCount int            `json:"article_count,omitempty"`
+	ProcessingMs int64          `json:"processing_ms,omitempty"`
+	Metadata     map[string]any `json:"metadata,omitempty"`
 }
 
 type UserPreferences struct {
 	NewsPersonality string   `json:"news_personality"`
 	FavouriteTopics []string `json:"favourite_topics"`
-	ResponseLength  string   `json:"content_length"` // user's content length is stored in the db as content_length
-	// the only language we support is english , there are no preferred sources
+	ResponseLength  string   `json:"content_length"`
 }
 
 type NewsArticle struct {
@@ -79,14 +106,28 @@ type NewsArticle struct {
 	EmbeddingID    string    `json:"embedding_id,omitempty"`
 }
 
+type AgentExecution struct {
+	AgentName    string         `json:"agent_name"`
+	StartTime    time.Time      `json:"start_time"`
+	EndTime      time.Time      `json:"end_time"`
+	Duration     time.Duration  `json:"duration"`
+	Status       string         `json:"status"` // "success", "error", "skipped"
+	Input        map[string]any `json:"input,omitempty"`
+	Output       map[string]any `json:"output,omitempty"`
+	ErrorMessage string         `json:"error_message,omitempty"`
+}
+
 type ProcessingStats struct {
-	TotalDuration     time.Duration         `json:"total_duration"`
-	AgentStats        map[string]AgentStats `json:"agent_stats"`
-	ArticlesFound     int                   `json:"articles_found,omitempty"`
-	ArticlesFiltered  int                   `json:"articles_filtered,omitempty"`
-	APICallsCount     int                   `json:"api_calls_count,omitempty"`
-	EmbeddingsCount   int                   `json:"embeddings_count,omitempty"`
-	EmbeddingDuration time.Duration         `json:"embedding_duration,omitempty"`
+	TotalDuration       time.Duration            `json:"total_duration"`
+	AgentStats          map[string]AgentStats    `json:"agent_stats"`
+	AgentExecutionTimes map[string]time.Duration `json:"agent_execution_times"`
+	ArticlesFound       int                      `json:"articles_found,omitempty"`
+	ArticlesFiltered    int                      `json:"articles_filtered,omitempty"`
+	APICallsCount       int                      `json:"api_calls_count,omitempty"`
+	TokensUsed          int                      `json:"tokens_used,omitempty"`
+	EmbeddingsCount     int                      `json:"embeddings_count,omitempty"`
+	EmbeddingDuration   time.Duration            `json:"embedding_duration,omitempty"`
+	CacheHitsCount      int                      `json:"cache_hits_count,omitempty"`
 }
 
 type AgentStats struct {
@@ -111,10 +152,12 @@ const (
 type Intent string
 
 const (
-	IntentNews     Intent = "news"
-	IntentChitChat Intent = "chit_chat"
+	IntentNewNewsQuery       Intent = "NEW_NEWS_QUERY"
+	IntentFollowUpDiscussion Intent = "FOLLOW_UP_DISCUSSION"
+	IntentChitChat           Intent = "CHITCHAT"
 )
 
+// Constructor Functions
 func NewWorkflowContext(req WorkflowRequest, requestID string) *WorkflowContext {
 	workflowID := req.WorkflowID
 	if workflowID == "" {
@@ -122,32 +165,41 @@ func NewWorkflowContext(req WorkflowRequest, requestID string) *WorkflowContext 
 	}
 
 	return &WorkflowContext{
-		ID:        workflowID,
-		UserID:    req.UserID,
-		RequestID: requestID,
-		Query:     req.Query,
-		Status:    WorkflowStatusPending,
-		StartTime: time.Now(),
+		ID:            workflowID,
+		UserID:        req.UserID,
+		RequestID:     requestID,
+		OriginalQuery: req.Query,
+		Status:        WorkflowStatusPending,
+		StartTime:     time.Now(),
 		ConversationContext: ConversationContext{
 			UserID:           req.UserID,
-			RecentTopics:     []string{},
+			Exchanges:        []ConversationExchange{},
+			TotalExchanges:   0,
+			CurrentTopics:    []string{},
 			RecentKeywords:   []string{},
 			LastQuery:        "",
+			LastResponse:     "",
 			LastIntent:       "",
-			MessageCount:     0,
 			SessionStartTime: time.Now(),
+			LastActiveTime:   time.Now(),
+			MessageCount:     0,
 			UserPreferences:  req.UserPreferences,
 			UpdatedAt:        time.Now(),
 		},
-		Metadata: make(map[string]any),
+		IsFollowUp:      false,
+		AgentExecutions: []AgentExecution{},
+		Metadata:        make(map[string]any),
 		ProcessingStats: ProcessingStats{
-			TotalDuration:     0,
-			AgentStats:        make(map[string]AgentStats),
-			ArticlesFound:     0,
-			ArticlesFiltered:  0,
-			APICallsCount:     0,
-			EmbeddingsCount:   0,
-			EmbeddingDuration: 0,
+			TotalDuration:       0,
+			AgentStats:          make(map[string]AgentStats),
+			AgentExecutionTimes: make(map[string]time.Duration),
+			ArticlesFound:       0,
+			ArticlesFiltered:    0,
+			APICallsCount:       0,
+			TokensUsed:          0,
+			EmbeddingsCount:     0,
+			EmbeddingDuration:   0,
+			CacheHitsCount:      0,
 		},
 	}
 }
@@ -162,6 +214,7 @@ func NewWorkflowResponse(workflowID, requestID, status, message string) *Workflo
 	}
 }
 
+// WorkflowContext Methods
 func (wc *WorkflowContext) MarkCompleted() {
 	wc.Status = WorkflowStatusCompleted
 	now := time.Now()
@@ -176,8 +229,40 @@ func (wc *WorkflowContext) MarkFailed() {
 	wc.ProcessingStats.TotalDuration = time.Since(wc.StartTime)
 }
 
+func (wc *WorkflowContext) MarkAsFollowUp(referencedTopic, referencedExchangeID string) {
+	wc.IsFollowUp = true
+	wc.ReferencedTopic = referencedTopic
+	wc.ReferencedExchangeID = referencedExchangeID
+	wc.ConversationContext.LastReferencedTopic = referencedTopic
+}
+
 func (wc *WorkflowContext) UpdateAgentStats(agentName string, stats AgentStats) {
 	wc.ProcessingStats.AgentStats[agentName] = stats
+}
+
+func (wc *WorkflowContext) AddAgentExecution(agentName string, duration time.Duration, status string, input, output map[string]any, err error) {
+	execution := AgentExecution{
+		AgentName: agentName,
+		StartTime: time.Now().Add(-duration),
+		EndTime:   time.Now(),
+		Duration:  duration,
+		Status:    status,
+		Input:     input,
+		Output:    output,
+	}
+
+	if err != nil {
+		execution.Status = "error"
+		execution.ErrorMessage = err.Error()
+	}
+
+	wc.AgentExecutions = append(wc.AgentExecutions, execution)
+
+	// Update processing stats
+	if wc.ProcessingStats.AgentExecutionTimes == nil {
+		wc.ProcessingStats.AgentExecutionTimes = make(map[string]time.Duration)
+	}
+	wc.ProcessingStats.AgentExecutionTimes[agentName] = duration
 }
 
 func (wc *WorkflowContext) GetDuration() time.Duration {
@@ -205,12 +290,8 @@ func (wc *WorkflowContext) SetIntent(intent string) {
 	wc.ConversationContext.LastIntent = intent
 }
 
-func GenerateRequestID() string {
-	return uuid.New().String()
-}
-
-func GenerateWorkflowID() string {
-	return uuid.New().String()
+func (wc *WorkflowContext) SetEnhancedQuery(enhancedQuery string) {
+	wc.EnhancedQuery = enhancedQuery
 }
 
 func (wc *WorkflowContext) IsCompleted() bool {
@@ -223,4 +304,98 @@ func (wc *WorkflowContext) IsFailed() bool {
 
 func (wc *WorkflowContext) IsProcessing() bool {
 	return wc.Status == WorkflowStatusProcessing
+}
+
+// ConversationContext Methods
+func (cc *ConversationContext) AddExchange(userQuery, aiResponse, intent string, topics, entities, keywords []string) {
+	exchange := ConversationExchange{
+		ID:           uuid.New().String(),
+		Timestamp:    time.Now(),
+		UserQuery:    userQuery,
+		AIResponse:   aiResponse,
+		Intent:       intent,
+		KeyTopics:    topics,
+		KeyEntities:  entities,
+		Keywords:     keywords,
+		ProcessingMs: 0, // Will be updated by caller if needed
+		Metadata:     make(map[string]any),
+	}
+
+	cc.Exchanges = append(cc.Exchanges, exchange)
+	cc.TotalExchanges++
+	cc.MessageCount++
+
+	// Update context tracking
+	cc.updateRecentContext(topics, entities, keywords)
+	cc.LastQuery = userQuery
+	cc.LastResponse = aiResponse
+	cc.LastIntent = intent
+	cc.LastActiveTime = time.Now()
+	cc.UpdatedAt = time.Now()
+}
+
+func (cc *ConversationContext) GetRecentExchanges(count int) []ConversationExchange {
+	if len(cc.Exchanges) <= count {
+		return cc.Exchanges
+	}
+	return cc.Exchanges[len(cc.Exchanges)-count:]
+}
+
+func (cc *ConversationContext) FindRelevantExchanges(query string, maxCount int) []ConversationExchange {
+	// TODO: Implement semantic similarity matching
+	// For now, return recent exchanges
+	return cc.GetRecentExchanges(maxCount)
+}
+
+func (cc *ConversationContext) updateRecentContext(topics, entities, keywords []string) {
+	// Add new topics/entities/keywords while maintaining size limits
+	cc.CurrentTopics = mergeAndLimit(cc.CurrentTopics, topics, 10)
+	cc.RecentKeywords = mergeAndLimit(cc.RecentKeywords, keywords, 20)
+}
+
+func (cc *ConversationContext) HasPreviousExchanges() bool {
+	return len(cc.Exchanges) > 0
+}
+
+func (cc *ConversationContext) GetLastExchange() *ConversationExchange {
+	if len(cc.Exchanges) == 0 {
+		return nil
+	}
+	return &cc.Exchanges[len(cc.Exchanges)-1]
+}
+
+// Helper Functions
+func GenerateRequestID() string {
+	return uuid.New().String()
+}
+
+func GenerateWorkflowID() string {
+	return uuid.New().String()
+}
+
+func GenerateSessionID() string {
+	return uuid.New().String()
+}
+
+func mergeAndLimit(existing, new []string, limit int) []string {
+	// Create a map to track existing items
+	existingMap := make(map[string]bool)
+	for _, item := range existing {
+		existingMap[item] = true
+	}
+
+	// Add new items that don't exist
+	result := existing
+	for _, item := range new {
+		if !existingMap[item] {
+			result = append(result, item)
+			existingMap[item] = true
+		}
+	}
+
+	if len(result) > limit {
+		result = result[len(result)-limit:]
+	}
+
+	return result
 }

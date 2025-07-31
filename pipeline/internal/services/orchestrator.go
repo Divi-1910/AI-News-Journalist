@@ -17,15 +17,11 @@ type Orchestrator struct {
 	chromaDBService *ChromaDBService
 	newsService     *NewsService
 	scraperService  *ScraperService
-
-	config config.Config
-	logger *logger.Logger
-
-	agentConfigs map[string]models.AgentConfig
-
-	activeWorkflows sync.Map // workflow_id -> *models.WorkflowContext
-
-	startTime time.Time
+	config          config.Config
+	logger          *logger.Logger
+	agentConfigs    map[string]models.AgentConfig
+	activeWorkflows sync.Map
+	startTime       time.Time
 }
 
 type WorkflowExecutor struct {
@@ -34,12 +30,22 @@ type WorkflowExecutor struct {
 	logger       *logger.Logger
 }
 
+// Enhanced Intent Classification Result
+type IntentClassificationResult struct {
+	Intent               string  `json:"intent"`
+	Confidence           float64 `json:"confidence"`
+	Reasoning            string  `json:"reasoning"`
+	ReferencedTopic      string  `json:"referenced_topic"`
+	EnhancedQuery        string  `json:"enhanced_query"`
+	ReferencedExchangeID string  `json:"referenced_exchange_id"`
+}
+
 var (
 	newsWorkflowAgents = []string{
 		"memory",
 		"classifier",
-		"keyword_extractor",
-		"query_enhancer",
+		"query_enhancer",    // Now sequential: enhancer first
+		"keyword_extractor", // then keyword extraction
 		"news_fetch",
 		"embedding_generation",
 		"vector_storage",
@@ -53,6 +59,12 @@ var (
 		"memory",
 		"classifier",
 		"chitchat",
+	}
+
+	followUpWorkflowAgents = []string{
+		"memory",
+		"classifier",
+		"chitchat", // Uses enhanced chitchat for follow-ups
 	}
 )
 
@@ -80,16 +92,17 @@ func NewOrchestrator(
 		startTime:       time.Now(),
 	}
 
-	logger.Info("Orchestrator Initialized Successfully",
+	logger.Info("Enhanced Conversational Orchestrator Initialized Successfully",
 		"agents_configured", len(orchestrator.agentConfigs),
-		"services_count", 6, "workflow_types", []string{"news", "chitchat"}, "optimization", "parallel_query_processing")
+		"services_count", 6,
+		"workflow_types", []string{"news", "chitchat", "follow_up_discussion"},
+		"features", []string{"conversational_context", "sequential_processing", "follow_up_detection"})
 
 	return orchestrator
 }
 
 func (orchestrator *Orchestrator) ExecuteWorkflow(ctx context.Context, req *models.WorkflowRequest) (*models.WorkflowResponse, error) {
 	startTime := time.Now()
-
 	requestID := models.GenerateRequestID()
 
 	orchestrator.logger.LogWorkflow(req.WorkflowID, req.UserID, "workflow_started", 0, nil)
@@ -116,9 +129,9 @@ func (orchestrator *Orchestrator) ExecuteWorkflow(ctx context.Context, req *mode
 	var err error
 	switch {
 	case workflowCtx.Status == models.WorkflowStatusPending:
-		err = executor.executeMainPipeline(ctx)
+		err = executor.executeConversationalPipeline(ctx)
 	default:
-		err = fmt.Errorf("Invalid Workflow Status : %s", workflowCtx.Status)
+		err = fmt.Errorf("Invalid Workflow Status: %s", workflowCtx.Status)
 	}
 
 	duration := time.Since(startTime)
@@ -126,12 +139,17 @@ func (orchestrator *Orchestrator) ExecuteWorkflow(ctx context.Context, req *mode
 		workflowCtx.MarkFailed()
 		orchestrator.logger.LogWorkflow(workflowCtx.ID, workflowCtx.UserID, "workflow_failed", duration, err)
 
-		if err := orchestrator.publishWorkflowUpdate(ctx, workflowCtx, models.UpdateTypeWorkflowError, fmt.Sprintf("Workflow failed : %s", err.Error())); err != nil {
+		if err := orchestrator.publishWorkflowUpdate(ctx, workflowCtx, models.UpdateTypeWorkflowError, fmt.Sprintf("Workflow failed: %s", err.Error())); err != nil {
 			orchestrator.logger.WithError(err).Error("Failed to publish workflow error update")
 		}
 
 		return models.NewWorkflowResponse(workflowCtx.ID, requestID, "failed", err.Error()), err
+	}
 
+	// Store conversation exchange after successful completion
+	if err := executor.storeConversationExchange(ctx); err != nil {
+		orchestrator.logger.WithError(err).Error("Failed to store conversation exchange")
+		// Don't fail the workflow, just log the error
 	}
 
 	workflowCtx.MarkCompleted()
@@ -155,116 +173,251 @@ func (orchestrator *Orchestrator) ExecuteWorkflow(ctx context.Context, req *mode
 	)
 
 	response.TotalTime = &totalTimeMs
-
 	return response, nil
-
 }
 
-func (workflowExecutor *WorkflowExecutor) executeMainPipeline(ctx context.Context) error {
-	if err := workflowExecutor.executeMemoryAgent(ctx); err != nil {
-		return fmt.Errorf("Memory Agent failed : %w", err)
+// Enhanced conversational pipeline
+func (workflowExecutor *WorkflowExecutor) executeConversationalPipeline(ctx context.Context) error {
+	// 1. Load conversation context (enhanced memory agent)
+	if err := workflowExecutor.executeEnhancedMemoryAgent(ctx); err != nil {
+		return fmt.Errorf("Enhanced Memory Agent failed: %w", err)
 	}
 
-	if err := workflowExecutor.executeIntentClassifier(ctx); err != nil {
-		return fmt.Errorf("Intent Classifier failed : %w", err)
+	// 2. Enhanced intent classification with conversation history
+	intentResult, err := workflowExecutor.executeEnhancedIntentClassifier(ctx)
+	if err != nil {
+		return fmt.Errorf("Enhanced Intent Classifier failed: %w", err)
 	}
 
-	switch workflowExecutor.workflowCtx.Intent {
-	case string(models.IntentNews):
-		return workflowExecutor.executeNewsWorkflow(ctx)
-	case string(models.IntentChitChat):
-		return workflowExecutor.executeChitChatWorkflow(ctx)
+	// 3. Route based on enhanced intent classification
+	switch models.Intent(intentResult.Intent) {
+	case models.IntentNewNewsQuery:
+		return workflowExecutor.executeNewsWorkflow(ctx, intentResult)
+	case models.IntentFollowUpDiscussion:
+		return workflowExecutor.executeFollowUpDiscussionWorkflow(ctx, intentResult)
+	case models.IntentChitChat:
+		return workflowExecutor.executeChitChatWorkflow(ctx, intentResult)
 	default:
+		// Default to chitchat for unknown intents
 		workflowExecutor.workflowCtx.SetIntent(string(models.IntentChitChat))
-		return workflowExecutor.executeChitChatWorkflow(ctx)
+		return workflowExecutor.executeChitChatWorkflow(ctx, &IntentClassificationResult{
+			Intent:     string(models.IntentChitChat),
+			Confidence: 0.5,
+			Reasoning:  "Default fallback to chitchat",
+		})
 	}
 }
 
-func (workflowExecutor *WorkflowExecutor) executeMemoryAgent(ctx context.Context) error {
+// Enhanced memory agent that retrieves full conversation context
+func (workflowExecutor *WorkflowExecutor) executeEnhancedMemoryAgent(ctx context.Context) error {
 	startTime := time.Now()
 
-	if err := workflowExecutor.publishAgentUpdate(ctx, "memory", models.AgentStatusProcessing, "Loading Conversation Context"); err != nil {
-		workflowExecutor.logger.WithError(err).Error("Failed to publish agent update")
+	if err := workflowExecutor.publishAgentUpdate(ctx, "memory", models.AgentStatusProcessing, "Loading Enhanced Conversation Context"); err != nil {
+		workflowExecutor.logger.WithError(err).Error("Failed to publish memory agent update")
 	}
 
+	// Retrieve full conversation context including exchanges
 	conversationContext, err := workflowExecutor.orchestrator.redisService.GetConversationContext(ctx, workflowExecutor.workflowCtx.UserID)
 	if err != nil {
-		workflowExecutor.logger.WithError(err).Error("Failed to get conversation context , Using empty Context")
+		workflowExecutor.logger.WithError(err).Error("Failed to get conversation context, initializing new context")
 
+		// Initialize new conversation context
 		conversationContext = &models.ConversationContext{
 			UserID:           workflowExecutor.workflowCtx.UserID,
-			RecentTopics:     []string{},
+			Exchanges:        []models.ConversationExchange{},
+			TotalExchanges:   0,
+			CurrentTopics:    []string{},
 			RecentKeywords:   []string{},
+			LastQuery:        "",
+			LastResponse:     "",
+			LastIntent:       "",
 			SessionStartTime: time.Now(),
+			LastActiveTime:   time.Now(),
+			MessageCount:     0,
 			UserPreferences:  workflowExecutor.workflowCtx.ConversationContext.UserPreferences,
 			UpdatedAt:        time.Now(),
 		}
 	}
 
+	// Update user preferences and activity time
 	conversationContext.UserPreferences = workflowExecutor.workflowCtx.ConversationContext.UserPreferences
+	conversationContext.LastActiveTime = time.Now()
 	workflowExecutor.workflowCtx.ConversationContext = *conversationContext
 
+	duration := time.Since(startTime)
 	workflowExecutor.workflowCtx.UpdateAgentStats("memory", models.AgentStats{
 		Name:      "memory",
-		Duration:  time.Since(startTime),
+		Duration:  duration,
 		Status:    string(models.AgentStatusCompleted),
 		StartTime: startTime,
 		EndTime:   time.Now(),
 	})
 
 	if err := workflowExecutor.publishAgentUpdate(ctx, "memory", models.AgentStatusCompleted,
-		fmt.Sprintf("Loaded Context with %d recent topics", len(conversationContext.RecentTopics))); err != nil {
+		fmt.Sprintf("Loaded context: %d exchanges, %d topics",
+			len(conversationContext.Exchanges), len(conversationContext.CurrentTopics))); err != nil {
 		workflowExecutor.logger.WithError(err).Error("Failed to publish memory agent completion")
 	}
 
 	return nil
 }
 
-func (workflowExecutor *WorkflowExecutor) executeIntentClassifier(ctx context.Context) error {
+// Enhanced intent classifier with conversation history
+func (workflowExecutor *WorkflowExecutor) executeEnhancedIntentClassifier(ctx context.Context) (*IntentClassificationResult, error) {
 	startTime := time.Now()
 
-	if err := workflowExecutor.publishAgentUpdate(ctx, "classifier", models.AgentStatusProcessing, "Analyzing request Intent"); err != nil {
-		workflowExecutor.logger.WithError(err).Error("Failed to publish intent classifier agent update")
+	if err := workflowExecutor.publishAgentUpdate(ctx, "classifier", models.AgentStatusProcessing, "Analyzing Intent with Conversation Context"); err != nil {
+		workflowExecutor.logger.WithError(err).Error("Failed to publish intent classifier update")
 	}
 
-	contextMap := map[string]interface{}{
-		"recent_topics":    workflowExecutor.workflowCtx.ConversationContext.RecentTopics,
-		"recent_keywords":  workflowExecutor.workflowCtx.ConversationContext.RecentKeywords,
-		"last_query":       workflowExecutor.workflowCtx.ConversationContext.LastQuery,
-		"last_intent":      workflowExecutor.workflowCtx.ConversationContext.LastIntent,
-		"message_count":    workflowExecutor.workflowCtx.ConversationContext.MessageCount,
-		"user_preferences": workflowExecutor.workflowCtx.ConversationContext.UserPreferences,
-	}
+	// Get recent conversation exchanges for context
+	recentExchanges := workflowExecutor.workflowCtx.ConversationContext.GetRecentExchanges(3)
 
-	intent, confidence, err := workflowExecutor.orchestrator.geminiService.ClassifyIntent(ctx, workflowExecutor.workflowCtx.Query, contextMap)
+	// Call enhanced intent classification
+	intentResult, err := workflowExecutor.orchestrator.geminiService.ClassifyIntentWithContext(
+		ctx,
+		workflowExecutor.workflowCtx.OriginalQuery,
+		recentExchanges,
+	)
 	if err != nil {
-		workflowExecutor.logger.WithError(err).Error("Failed to classify intent : %w", err)
+		workflowExecutor.logger.WithError(err).Error("Enhanced intent classification failed")
+		// Fallback to simple classification
+		intent, confidence, fallbackErr := workflowExecutor.orchestrator.geminiService.ClassifyIntent(
+			ctx,
+			workflowExecutor.workflowCtx.OriginalQuery,
+			map[string]interface{}{
+				"recent_topics":    workflowExecutor.workflowCtx.ConversationContext.CurrentTopics,
+				"user_preferences": workflowExecutor.workflowCtx.ConversationContext.UserPreferences,
+			},
+		)
+		if fallbackErr != nil {
+			return nil, fmt.Errorf("both enhanced and fallback intent classification failed: %w", fallbackErr)
+		}
+
+		intentResult = &IntentClassificationResult{
+			Intent:     intent,
+			Confidence: confidence,
+			Reasoning:  "Fallback classification used",
+		}
 	}
 
-	workflowExecutor.workflowCtx.SetIntent(intent)
-	workflowExecutor.workflowCtx.ProcessingStats.APICallsCount++
+	// Update workflow context
+	workflowExecutor.workflowCtx.SetIntent(intentResult.Intent)
+	workflowExecutor.workflowCtx.IntentConfidence = intentResult.Confidence
 
+	// Handle follow-up marking
+	if intentResult.Intent == string(models.IntentFollowUpDiscussion) {
+		workflowExecutor.workflowCtx.MarkAsFollowUp(intentResult.ReferencedTopic, intentResult.ReferencedExchangeID)
+	}
+
+	// If enhanced query provided, update context
+	if intentResult.EnhancedQuery != "" {
+		workflowExecutor.workflowCtx.SetEnhancedQuery(intentResult.EnhancedQuery)
+	}
+
+	duration := time.Since(startTime)
+	workflowExecutor.workflowCtx.ProcessingStats.APICallsCount++
 	workflowExecutor.workflowCtx.UpdateAgentStats("classifier", models.AgentStats{
 		Name:      "classifier",
-		Duration:  time.Since(startTime),
+		Duration:  duration,
 		Status:    string(models.AgentStatusCompleted),
 		StartTime: startTime,
 		EndTime:   time.Now(),
 	})
 
-	if err := workflowExecutor.publishAgentUpdate(ctx, "classifier", models.AgentStatusCompleted, fmt.Sprintf("Intent : %s (confidence : %.2f)", intent, confidence)); err != nil {
+	if err := workflowExecutor.publishAgentUpdate(ctx, "classifier", models.AgentStatusCompleted,
+		fmt.Sprintf("Intent: %s (confidence: %.2f) - %s",
+			intentResult.Intent, intentResult.Confidence, intentResult.Reasoning)); err != nil {
 		workflowExecutor.logger.WithError(err).Error("Failed to publish intent classifier completion")
+	}
+
+	return intentResult, nil
+}
+
+func (workflowExecutor *WorkflowExecutor) executeFollowUpDiscussionWorkflow(ctx context.Context, intentResult *IntentClassificationResult) error {
+	workflowExecutor.logger.LogWorkflow(workflowExecutor.workflowCtx.ID, workflowExecutor.workflowCtx.UserID, "follow_up_workflow_started", 0, nil)
+
+	if err := workflowExecutor.generateContextualResponse(ctx, intentResult); err != nil {
+		return fmt.Errorf("Failed to generate contextual response: %w", err)
 	}
 
 	return nil
 }
 
+// Enhanced chitchat workflow with intent result
+func (workflowExecutor *WorkflowExecutor) executeChitChatWorkflow(ctx context.Context, intentResult *IntentClassificationResult) error {
+	workflowExecutor.logger.LogWorkflow(workflowExecutor.workflowCtx.ID, workflowExecutor.workflowCtx.UserID, "chitchat_workflow_started", 0, nil)
+
+	if err := workflowExecutor.generateChitChatResponse(ctx); err != nil {
+		return fmt.Errorf("Failed to generate chitchat response: %w", err)
+	}
+
+	return nil
+}
+
+func (workflowExecutor *WorkflowExecutor) executeNewsWorkflow(ctx context.Context, intentResult *IntentClassificationResult) error {
+	workflowExecutor.logger.LogWorkflow(workflowExecutor.workflowCtx.ID, workflowExecutor.workflowCtx.UserID, "news_workflow_started", 0, nil)
+
+	if err := workflowExecutor.executeSequentialQueryProcessing(ctx, intentResult); err != nil {
+		workflowExecutor.logger.WithError(err).Error("Failed to execute sequential query processing")
+		return err
+	}
+
+	if err := workflowExecutor.fetchStoreAndSearchArticles(ctx); err != nil {
+		workflowExecutor.logger.WithError(err).Error("Failed to fetch store and search articles")
+		return err
+	}
+
+	if err := workflowExecutor.enhanceArticlesWithFullContent(ctx); err != nil {
+		workflowExecutor.logger.WithError(err).Error("Getting full article content failed, proceeding without it")
+	}
+
+	if err := workflowExecutor.generateSummary(ctx); err != nil {
+		return fmt.Errorf("summary generation failed: %w", err)
+	}
+
+	if err := workflowExecutor.ApplyPersonality(ctx); err != nil {
+		workflowExecutor.logger.WithError(err).Warn("personality application failed, using base summary: %w", err)
+		workflowExecutor.workflowCtx.Response = workflowExecutor.workflowCtx.Summary
+	}
+
+	return nil
+}
+
+// Store conversation exchange after workflow completion
+func (workflowExecutor *WorkflowExecutor) storeConversationExchange(ctx context.Context) error {
+	// Extract key topics and entities from the conversation
+	// For now, use simple extraction - could be enhanced with AI later
+	keyTopics := workflowExecutor.workflowCtx.ConversationContext.CurrentTopics
+	keyEntities := []string{} // TODO: Extract entities from query/response
+	keywords := workflowExecutor.workflowCtx.Keywords
+
+	// Add exchange to conversation context
+	workflowExecutor.workflowCtx.ConversationContext.AddExchange(
+		workflowExecutor.workflowCtx.OriginalQuery,
+		workflowExecutor.workflowCtx.Response,
+		workflowExecutor.workflowCtx.Intent,
+		keyTopics,
+		keyEntities,
+		keywords,
+	)
+
+	// Store updated conversation context
+	return workflowExecutor.orchestrator.redisService.UpdateConversationContext(
+		ctx,
+		&workflowExecutor.workflowCtx.ConversationContext,
+	)
+}
+
+// Updated progress calculation for new workflow types
 func calculateAgentProgress(workflowType string, agentName string, status models.AgentStatus) float64 {
 	var agents []string
 
 	switch workflowType {
-	case string(models.IntentNews):
+	case string(models.IntentNewNewsQuery):
 		agents = newsWorkflowAgents
+	case string(models.IntentFollowUpDiscussion):
+		agents = followUpWorkflowAgents
 	case string(models.IntentChitChat):
 		agents = chitchatWorkflowAgents
 	default:
@@ -316,14 +469,20 @@ func (workflowExecutor *WorkflowExecutor) publishAgentUpdate(ctx context.Context
 	update.Data["workflow_type"] = workflowExecutor.workflowCtx.Intent
 	update.Data["agent_sequence"] = getAgentSequence(workflowExecutor.workflowCtx.Intent)
 	update.Data["total_agents"] = getTotalAgents(workflowExecutor.workflowCtx.Intent)
+	update.Data["is_follow_up"] = workflowExecutor.workflowCtx.IsFollowUp
+	if workflowExecutor.workflowCtx.ReferencedTopic != "" {
+		update.Data["referenced_topic"] = workflowExecutor.workflowCtx.ReferencedTopic
+	}
 
 	return workflowExecutor.orchestrator.redisService.PublishAgentUpdate(ctx, workflowExecutor.workflowCtx.UserID, update)
 }
 
 func getAgentSequence(workflowType string) []string {
 	switch workflowType {
-	case string(models.IntentNews):
+	case string(models.IntentNewNewsQuery):
 		return newsWorkflowAgents
+	case string(models.IntentFollowUpDiscussion):
+		return followUpWorkflowAgents
 	case string(models.IntentChitChat):
 		return chitchatWorkflowAgents
 	default:
@@ -349,118 +508,171 @@ func (orchestrator *Orchestrator) publishWorkflowUpdate(ctx context.Context, wor
 	return orchestrator.redisService.PublishAgentUpdate(ctx, workflowCtx.UserID, update)
 }
 
-func (workflowExecutor *WorkflowExecutor) executeChitChatWorkflow(ctx context.Context) error {
-	workflowExecutor.logger.LogWorkflow(workflowExecutor.workflowCtx.ID, workflowExecutor.workflowCtx.UserID, "chitchat_workflow_started", 0, nil)
+func (workflowExecutor *WorkflowExecutor) executeMainPipeline(ctx context.Context) error {
+	return workflowExecutor.executeConversationalPipeline(ctx)
+}
 
-	if err := workflowExecutor.generateChitChatResponse(ctx); err != nil {
-		return fmt.Errorf("Failed to generate chitchat response: %w", err)
+func (workflowExecutor *WorkflowExecutor) executeSequentialQueryProcessing(ctx context.Context, intentResult *IntentClassificationResult) error {
+	workflowExecutor.logger.Debug("Starting Sequential Query Processing", "sequence", []string{"query_enhancer", "keyword_extractor"})
+
+	queryToProcess := workflowExecutor.workflowCtx.OriginalQuery
+	if intentResult.EnhancedQuery != "" {
+		queryToProcess = intentResult.EnhancedQuery
 	}
 
-	go func() {
-		asyncCtx := context.Background()
-		workflowExecutor.updateMemoryAsync(asyncCtx)
-	}()
+	if err := workflowExecutor.enhanceQueryWithContext(ctx, queryToProcess); err != nil {
+		workflowExecutor.logger.WithError(err).Error("Query enhancement failed, using original query")
+		// Continue with original query
+	}
+
+	enhancedQuery := workflowExecutor.workflowCtx.EnhancedQuery
+	if enhancedQuery == "" {
+		enhancedQuery = queryToProcess
+	}
+
+	if err := workflowExecutor.extractKeywordsFromEnhancedQuery(ctx, enhancedQuery); err != nil {
+		return fmt.Errorf("keyword extraction failed: %w", err)
+	}
 
 	return nil
 }
 
-func (workflowExecutor *WorkflowExecutor) updateMemoryAsync(ctx context.Context) {
+func (workflowExecutor *WorkflowExecutor) generateContextualResponse(ctx context.Context, intentResult *IntentClassificationResult) error {
 	startTime := time.Now()
 
-	updatedContext := workflowExecutor.workflowCtx.ConversationContext
-	updatedContext.LastQuery = workflowExecutor.workflowCtx.Query
-	updatedContext.LastIntent = workflowExecutor.workflowCtx.Intent
-	updatedContext.MessageCount++
-	updatedContext.UpdatedAt = time.Now()
-
-	if len(workflowExecutor.workflowCtx.Keywords) > 0 {
-		allKeywords := append(updatedContext.RecentKeywords, workflowExecutor.workflowCtx.Keywords...)
-
-		updatedContext.RecentKeywords = allKeywords
+	if err := workflowExecutor.publishAgentUpdate(ctx, "chitchat", models.AgentStatusProcessing, "Generating Contextual Follow-up Response"); err != nil {
+		workflowExecutor.logger.WithError(err).Error("Failed to publish contextual chitchat update")
 	}
 
-	if err := workflowExecutor.orchestrator.redisService.UpdateConversationContext(
-		ctx, &updatedContext); err != nil {
-		workflowExecutor.logger.WithError(err).Error("failed to update conversation context")
-	} else {
-		workflowExecutor.logger.LogService("redis", "update_memory_async", time.Since(startTime), map[string]interface{}{
-			"user_id":        updatedContext.UserID,
-			"message_count":  updatedContext.MessageCount,
-			"keywords_count": len(updatedContext.RecentKeywords),
-		}, nil)
-	}
-
-}
-
-func (workflowExecutor *WorkflowExecutor) generateChitChatResponse(ctx context.Context) error {
-	startTime := time.Now()
-
-	if err := workflowExecutor.publishAgentUpdate(ctx, "chitchat", models.AgentStatusProcessing, "Generating Conversational Response"); err != nil {
-		workflowExecutor.logger.WithError(err).Error("Failed to generate chitchat update")
-	}
+	relevantExchanges := workflowExecutor.workflowCtx.ConversationContext.FindRelevantExchanges(workflowExecutor.workflowCtx.OriginalQuery, 3)
 
 	contextMap := map[string]interface{}{
-		"recent_topics":    workflowExecutor.workflowCtx.ConversationContext.RecentTopics,
-		"last_query":       workflowExecutor.workflowCtx.ConversationContext.LastQuery,
-		"message_count":    workflowExecutor.workflowCtx.ConversationContext.MessageCount,
-		"user_preferences": workflowExecutor.workflowCtx.ConversationContext.UserPreferences,
+		"original_query":       workflowExecutor.workflowCtx.OriginalQuery,
+		"referenced_topic":     intentResult.ReferencedTopic,
+		"conversation_history": relevantExchanges,
+		"user_preferences":     workflowExecutor.workflowCtx.ConversationContext.UserPreferences,
+		"last_summary":         workflowExecutor.workflowCtx.ConversationContext.LastSummary,
 	}
 
-	response, err := workflowExecutor.orchestrator.geminiService.GenerateChitChatResponse(ctx, workflowExecutor.workflowCtx.Query, contextMap)
+	response, err := workflowExecutor.orchestrator.geminiService.GenerateContextualResponse(
+		ctx,
+		workflowExecutor.workflowCtx.OriginalQuery,
+		relevantExchanges,
+		intentResult.ReferencedTopic,
+		workflowExecutor.workflowCtx.ConversationContext.UserPreferences,
+		contextMap,
+	)
 	if err != nil {
-		return fmt.Errorf("chitchat generation failed : %w", err)
+		return fmt.Errorf("contextual response generation failed: %w", err)
 	}
 
 	workflowExecutor.workflowCtx.Response = response
 	workflowExecutor.workflowCtx.ProcessingStats.APICallsCount++
 
+	duration := time.Since(startTime)
 	workflowExecutor.workflowCtx.UpdateAgentStats("chitchat", models.AgentStats{
 		Name:      "chitchat",
-		Duration:  time.Since(startTime),
+		Duration:  duration,
 		Status:    string(models.AgentStatusCompleted),
 		StartTime: startTime,
 		EndTime:   time.Now(),
 	})
 
-	if err := workflowExecutor.publishAgentUpdate(ctx, "chitchat", models.AgentStatusCompleted, fmt.Sprintf("Generated Conversational Response (%d chars)", len(response))); err != nil {
-		workflowExecutor.logger.WithError(err).Error("Failed to publish chitchat response completion")
+	if err := workflowExecutor.publishAgentUpdate(ctx, "chitchat", models.AgentStatusCompleted,
+		fmt.Sprintf("Generated contextual response (%d chars) referencing: %s", len(response), intentResult.ReferencedTopic)); err != nil {
+		workflowExecutor.logger.WithError(err).Error("Failed to publish contextual chitchat completion")
 	}
 
 	return nil
 }
 
-func (workflowExecutor *WorkflowExecutor) executeNewsWorkflow(ctx context.Context) error {
-	workflowExecutor.logger.LogWorkflow(workflowExecutor.workflowCtx.ID, workflowExecutor.workflowCtx.UserID, "news_workflow_started", 0, nil)
+// Enhanced query enhancement with conversation context
+func (workflowExecutor *WorkflowExecutor) enhanceQueryWithContext(ctx context.Context, queryToProcess string) error {
+	startTime := time.Now()
 
-	if err := workflowExecutor.KeywordExtractionAndQueryEnhancement(ctx); err != nil {
-		workflowExecutor.logger.WithError(err).Error("Failed to execute either keyword extraction or query enhancement")
+	if err := workflowExecutor.publishAgentUpdate(ctx, "query_enhancer", models.AgentStatusProcessing, "Enhancing Query with Conversation Context"); err != nil {
+		workflowExecutor.logger.WithError(err).Error("Failed to publish query enhancer update")
 	}
 
-	if err := workflowExecutor.fetchStoreAndSearchArticles(ctx); err != nil {
-		workflowExecutor.logger.WithError(err).Error("Failed to fetch store and search articles")
+	contextMap := map[string]interface{}{
+		"intent":               workflowExecutor.workflowCtx.Intent,
+		"conversation_context": workflowExecutor.workflowCtx.ConversationContext,
+		"current_topics":       workflowExecutor.workflowCtx.ConversationContext.CurrentTopics,
+		"user_preferences":     workflowExecutor.workflowCtx.ConversationContext.UserPreferences,
 	}
 
-	if err := workflowExecutor.enhanceArticlesWithFullContent(ctx); err != nil {
-		workflowExecutor.logger.WithError(err).Error("Getting full article content failed , proceeding without it")
+	enhancement, err := workflowExecutor.orchestrator.geminiService.EnhanceQueryForSearch(ctx, queryToProcess, contextMap)
+	if err != nil {
+		return fmt.Errorf("query enhancement failed: %w", err)
 	}
 
-	if err := workflowExecutor.generateSummary(ctx); err != nil {
-		return fmt.Errorf("summary generation failed : %w", err)
+	if enhancement.EnhancedQuery != "" {
+		workflowExecutor.workflowCtx.SetEnhancedQuery(enhancement.EnhancedQuery)
+		workflowExecutor.workflowCtx.Metadata["original_query"] = workflowExecutor.workflowCtx.OriginalQuery
+		workflowExecutor.workflowCtx.Metadata["enhanced_query"] = enhancement.EnhancedQuery
 	}
 
-	if err := workflowExecutor.ApplyPersonality(ctx); err != nil {
-		workflowExecutor.logger.WithError(err).Warn(" personality application failed , using base summary : %w", err)
-		workflowExecutor.workflowCtx.Response = workflowExecutor.workflowCtx.Summary
-	}
+	workflowExecutor.workflowCtx.ProcessingStats.APICallsCount++
 
-	go func() {
-		asyncCtx := context.Background()
-		workflowExecutor.updateMemoryAsync(asyncCtx)
-	}()
+	duration := time.Since(startTime)
+	workflowExecutor.workflowCtx.UpdateAgentStats("query_enhancer", models.AgentStats{
+		Name:      "query_enhancer",
+		Duration:  duration,
+		Status:    string(models.AgentStatusCompleted),
+		StartTime: startTime,
+		EndTime:   time.Now(),
+	})
+
+	if err := workflowExecutor.publishAgentUpdate(ctx, "query_enhancer", models.AgentStatusCompleted,
+		fmt.Sprintf("Enhanced Query: %s", enhancement.EnhancedQuery)); err != nil {
+		workflowExecutor.logger.WithError(err).Error("Failed to publish query enhancer completion update")
+	}
 
 	return nil
 }
 
+// Enhanced keyword extraction using enhanced query
+func (workflowExecutor *WorkflowExecutor) extractKeywordsFromEnhancedQuery(ctx context.Context, queryToProcess string) error {
+	startTime := time.Now()
+
+	if err := workflowExecutor.publishAgentUpdate(ctx, "keyword_extractor", models.AgentStatusProcessing, "Extracting Keywords from Enhanced Query"); err != nil {
+		workflowExecutor.logger.WithError(err).Error("Failed to publish keyword extractor update")
+	}
+
+	contextMap := map[string]interface{}{
+		"recent_topics":         workflowExecutor.workflowCtx.ConversationContext.CurrentTopics,
+		"recent_keywords":       workflowExecutor.workflowCtx.ConversationContext.RecentKeywords,
+		"preferred_user_topics": workflowExecutor.workflowCtx.ConversationContext.UserPreferences.FavouriteTopics,
+		"enhanced_query":        queryToProcess,
+		"original_query":        workflowExecutor.workflowCtx.OriginalQuery,
+	}
+
+	keywords, err := workflowExecutor.orchestrator.geminiService.ExtractKeyWords(ctx, queryToProcess, contextMap)
+	if err != nil {
+		return fmt.Errorf("keyword extraction failed: %w", err)
+	}
+
+	workflowExecutor.workflowCtx.AddKeywords(keywords)
+	workflowExecutor.workflowCtx.ProcessingStats.APICallsCount++
+
+	duration := time.Since(startTime)
+	workflowExecutor.workflowCtx.UpdateAgentStats("keyword_extractor", models.AgentStats{
+		Name:      "keyword_extractor",
+		Duration:  duration,
+		Status:    string(models.AgentStatusCompleted),
+		StartTime: startTime,
+		EndTime:   time.Now(),
+	})
+
+	if err := workflowExecutor.publishAgentUpdate(ctx, "keyword_extractor", models.AgentStatusCompleted,
+		fmt.Sprintf("Extracted %d keywords from enhanced query", len(keywords))); err != nil {
+		workflowExecutor.logger.WithError(err).Error("Failed to publish keyword extractor completion update")
+	}
+
+	return nil
+}
+
+// Updated: Apply personality with original query context
 func (workflowExecutor *WorkflowExecutor) ApplyPersonality(ctx context.Context) error {
 	startTime := time.Now()
 
@@ -470,22 +682,21 @@ func (workflowExecutor *WorkflowExecutor) ApplyPersonality(ctx context.Context) 
 
 	personality := workflowExecutor.workflowCtx.ConversationContext.UserPreferences.NewsPersonality
 
-	originalQuery := workflowExecutor.workflowCtx.Query
-	if ogQuery, exists := workflowExecutor.workflowCtx.Metadata["original_query"].(string); exists {
-		originalQuery = ogQuery
-	}
+	// Use original query for persona application
+	originalQuery := workflowExecutor.workflowCtx.OriginalQuery
 
 	personalizedResponse, err := workflowExecutor.orchestrator.geminiService.AddPersonalityToResponse(ctx, originalQuery, workflowExecutor.workflowCtx.Summary, personality)
 	if err != nil {
-		return fmt.Errorf("personality application failed : %w", err)
+		return fmt.Errorf("personality application failed: %w", err)
 	}
 
 	workflowExecutor.workflowCtx.Response = personalizedResponse
 	workflowExecutor.workflowCtx.ProcessingStats.APICallsCount++
 
+	duration := time.Since(startTime)
 	workflowExecutor.workflowCtx.UpdateAgentStats("persona", models.AgentStats{
 		Name:      "persona",
-		Duration:  time.Since(startTime),
+		Duration:  duration,
 		Status:    string(models.AgentStatusCompleted),
 		StartTime: startTime,
 		EndTime:   time.Now(),
@@ -497,41 +708,42 @@ func (workflowExecutor *WorkflowExecutor) ApplyPersonality(ctx context.Context) 
 	}
 
 	return nil
-
 }
 
+// Updated: Generate summary with enhanced context
 func (workflowExecutor *WorkflowExecutor) generateSummary(ctx context.Context) error {
 	startTime := time.Now()
 
 	if err := workflowExecutor.publishAgentUpdate(ctx, "summarizer", models.AgentStatusProcessing, "Generating Comprehensive Summary"); err != nil {
-		workflowExecutor.logger.WithError(err).Error("Failed to publish summarzer update ")
+		workflowExecutor.logger.WithError(err).Error("Failed to publish summarizer update")
 	}
 
 	articlesContents := make([]string, len(workflowExecutor.workflowCtx.Articles))
 	for i, article := range workflowExecutor.workflowCtx.Articles {
-		content := fmt.Sprintf("Title: %s \n Source: %s \n Description: %s", article.Title, article.Source, article.Description)
+		content := fmt.Sprintf("Title: %s\nSource: %s\nDescription: %s", article.Title, article.Source, article.Description)
 		if article.Content != "" {
-			content += fmt.Sprintf("\n Content: %s", article.Content)
+			content += fmt.Sprintf("\nContent: %s", article.Content)
 		}
 		articlesContents[i] = content
 	}
 
-	originalQuery := workflowExecutor.workflowCtx.Query
-	if ogQuery, exists := workflowExecutor.workflowCtx.Metadata["original_query"].(string); exists {
-		originalQuery = ogQuery
-	}
+	// Use original query for summarization
+	originalQuery := workflowExecutor.workflowCtx.OriginalQuery
 
+	// Pass current date for temporal context
 	summary, err := workflowExecutor.orchestrator.geminiService.SummarizeContent(ctx, originalQuery, articlesContents)
 	if err != nil {
-		return fmt.Errorf("summary generation failed : %w", err)
+		return fmt.Errorf("summary generation failed: %w", err)
 	}
 
 	workflowExecutor.workflowCtx.Summary = summary
+	workflowExecutor.workflowCtx.ConversationContext.LastSummary = summary
 	workflowExecutor.workflowCtx.ProcessingStats.APICallsCount++
 
+	duration := time.Since(startTime)
 	workflowExecutor.workflowCtx.UpdateAgentStats("summarizer", models.AgentStats{
 		Name:      "summarizer",
-		Duration:  time.Since(startTime),
+		Duration:  duration,
 		Status:    string(models.AgentStatusCompleted),
 		StartTime: startTime,
 		EndTime:   time.Now(),
@@ -543,8 +755,51 @@ func (workflowExecutor *WorkflowExecutor) generateSummary(ctx context.Context) e
 	}
 
 	return nil
-
 }
+
+// Updated: Enhanced chitchat response generation
+func (workflowExecutor *WorkflowExecutor) generateChitChatResponse(ctx context.Context) error {
+	startTime := time.Now()
+
+	if err := workflowExecutor.publishAgentUpdate(ctx, "chitchat", models.AgentStatusProcessing, "Generating Conversational Response"); err != nil {
+		workflowExecutor.logger.WithError(err).Error("Failed to generate chitchat update")
+	}
+
+	contextMap := map[string]interface{}{
+		"recent_topics":        workflowExecutor.workflowCtx.ConversationContext.CurrentTopics,
+		"last_query":           workflowExecutor.workflowCtx.ConversationContext.LastQuery,
+		"last_response":        workflowExecutor.workflowCtx.ConversationContext.LastResponse,
+		"message_count":        workflowExecutor.workflowCtx.ConversationContext.MessageCount,
+		"user_preferences":     workflowExecutor.workflowCtx.ConversationContext.UserPreferences,
+		"conversation_context": workflowExecutor.workflowCtx.ConversationContext,
+	}
+
+	response, err := workflowExecutor.orchestrator.geminiService.GenerateChitChatResponse(ctx, workflowExecutor.workflowCtx.OriginalQuery, contextMap)
+	if err != nil {
+		return fmt.Errorf("chitchat generation failed: %w", err)
+	}
+
+	workflowExecutor.workflowCtx.Response = response
+	workflowExecutor.workflowCtx.ProcessingStats.APICallsCount++
+
+	duration := time.Since(startTime)
+	workflowExecutor.workflowCtx.UpdateAgentStats("chitchat", models.AgentStats{
+		Name:      "chitchat",
+		Duration:  duration,
+		Status:    string(models.AgentStatusCompleted),
+		StartTime: startTime,
+		EndTime:   time.Now(),
+	})
+
+	if err := workflowExecutor.publishAgentUpdate(ctx, "chitchat", models.AgentStatusCompleted,
+		fmt.Sprintf("Generated conversational response (%d chars)", len(response))); err != nil {
+		workflowExecutor.logger.WithError(err).Error("Failed to publish chitchat response completion")
+	}
+
+	return nil
+}
+
+// Keep existing methods but update them to use enhanced context
 
 func (workflowExecutor *WorkflowExecutor) enhanceArticlesWithFullContent(ctx context.Context) error {
 	startTime := time.Now()
@@ -576,7 +831,7 @@ func (workflowExecutor *WorkflowExecutor) enhanceArticlesWithFullContent(ctx con
 
 	scrapingResult, err := workflowExecutor.orchestrator.scraperService.ScrapeMultipleURLs(ctx, scrapingRequest)
 	if err != nil {
-		workflowExecutor.logger.WithError(err).Error("Batch scraping articles failed , trying individual articles")
+		workflowExecutor.logger.WithError(err).Error("Batch scraping articles failed, trying individual articles")
 
 		for i := range articlesToScrape {
 			scraped, err := workflowExecutor.orchestrator.scraperService.ScrapeNewsArticle(ctx, &articlesToScrape[i])
@@ -593,194 +848,41 @@ func (workflowExecutor *WorkflowExecutor) enhanceArticlesWithFullContent(ctx con
 		}
 
 		for i := range articlesToScrape {
-			if scraped, exits := urlToContentMap[articlesToScrape[i].URL]; exits && scraped.Success {
+			if scraped, exists := urlToContentMap[articlesToScrape[i].URL]; exists && scraped.Success {
 				if scraped.Content != "" {
 					articlesToScrape[i].Content = scraped.Content
 				}
-				// do not need to update the author and image url , newsapi provides the accurate information about the two
 			}
 		}
 	}
 
-	fullArticles := make([]models.NewsArticle, len(relevantArticles))
-	copy(fullArticles, relevantArticles)
-	for i := 0; i < len(relevantArticles); i++ {
-		fullArticles[i] = relevantArticles[i]
-	}
+	workflowExecutor.workflowCtx.Articles = articlesToScrape
 
-	workflowExecutor.workflowCtx.Articles = fullArticles
-
+	duration := time.Since(startTime)
 	workflowExecutor.workflowCtx.UpdateAgentStats("scrapper", models.AgentStats{
 		Name:      "scrapper",
-		Duration:  time.Since(startTime),
+		Duration:  duration,
 		Status:    string(models.AgentStatusCompleted),
 		StartTime: startTime,
 		EndTime:   time.Now(),
 	})
 
 	fullContentCount := 0
-	for _, article := range fullArticles {
+	for _, article := range articlesToScrape {
 		if article.Content != "" {
 			fullContentCount++
 		}
 	}
 
 	if err := workflowExecutor.publishAgentUpdate(ctx, "scrapper", models.AgentStatusCompleted,
-		fmt.Sprintf("Enhanced %d articles with full content (attempted %d)", fullContentCount, len(fullArticles))); err != nil {
+		fmt.Sprintf("Enhanced %d articles with full content (attempted %d)", fullContentCount, len(articlesToScrape))); err != nil {
 		workflowExecutor.logger.WithError(err).Error("Failed to publish scrapper completion update")
 	}
 
 	return nil
 }
 
-func (workflowExecutor *WorkflowExecutor) KeywordExtractionAndQueryEnhancement(ctx context.Context) error {
-	startTime := time.Now()
-
-	workflowExecutor.logger.Debug("Starting Keyword Extraction And Query Enhancement Parallely", "agents", []string{"keyword_extractor", "query_enhancer"})
-
-	var wg sync.WaitGroup
-	var keywordErr, enhanceErr error
-
-	errChan := make(chan error, 2)
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		if err := workflowExecutor.extractKeywords(ctx); err != nil {
-			keywordErr = err
-			errChan <- fmt.Errorf("keywords extraction failed : %w", err)
-			return
-		}
-		workflowExecutor.logger.Debug("Finished extracting keywords")
-	}()
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		if err := workflowExecutor.enhanceQuery(ctx); err != nil {
-			enhanceErr = err
-			errChan <- fmt.Errorf(" Query enhancement failed : %w", err)
-		}
-	}()
-
-	wg.Wait()
-	close(errChan)
-
-	for err := range errChan {
-		workflowExecutor.logger.WithError(err).Warn("Failed to extract either keyword extraction or Query Enhancement")
-	}
-
-	duration := time.Since(startTime)
-	workflowExecutor.logger.LogService("orchestrator", "keyword_extraction_and_query_processing", duration, map[string]interface{}{
-		"keyword_success": keywordErr == nil,
-		"enhance_success": enhanceErr == nil,
-	}, nil)
-
-	return nil
-}
-
-func (workflowExecutor *WorkflowExecutor) extractKeywords(ctx context.Context) error {
-	startTime := time.Now()
-
-	if err := workflowExecutor.publishAgentUpdate(ctx, "keyword_extractor", models.AgentStatusProcessing, "Extracting search Keywords"); err != nil {
-		workflowExecutor.logger.WithError(err).Error("Failed to publish keyword extractor update")
-	}
-
-	contextMap := map[string]interface{}{
-		"recent_topics":         workflowExecutor.workflowCtx.ConversationContext.RecentTopics,
-		"recent_keywords":       workflowExecutor.workflowCtx.ConversationContext.RecentKeywords,
-		"preferred_user_topics": workflowExecutor.workflowCtx.ConversationContext.UserPreferences.FavouriteTopics,
-	}
-
-	keywords, err := workflowExecutor.orchestrator.geminiService.ExtractKeyWords(ctx, workflowExecutor.workflowCtx.Query, contextMap)
-	if err != nil {
-		return fmt.Errorf("keyword extraction failed : %w", err)
-	}
-
-	workflowExecutor.workflowCtx.AddKeywords(keywords)
-	workflowExecutor.workflowCtx.ProcessingStats.APICallsCount++
-
-	workflowExecutor.workflowCtx.UpdateAgentStats("keyword_extractor", models.AgentStats{
-		Name:      "keyword_extractor",
-		Duration:  time.Since(startTime),
-		Status:    string(models.AgentStatusCompleted),
-		StartTime: startTime,
-		EndTime:   time.Now(),
-	})
-
-	if err := workflowExecutor.publishAgentUpdate(ctx, "keyword_extractor", models.AgentStatusCompleted, fmt.Sprintf("Extracted %d keywords", len(keywords))); err != nil {
-		workflowExecutor.logger.WithError(err).Error("Failed to publish keyword extractor completion update")
-	}
-
-	return nil
-}
-
-func (workflowExecutor *WorkflowExecutor) enhanceQuery(ctx context.Context) error {
-	startTime := time.Now()
-
-	if err := workflowExecutor.publishAgentUpdate(ctx, "query_enhancer", models.AgentStatusProcessing, "Enhancing User's Query"); err != nil {
-		workflowExecutor.logger.WithError(err).Error("Failed to publish query enhancer update")
-	}
-
-	contextMap := map[string]interface{}{
-		"intent": workflowExecutor.workflowCtx.Intent,
-	}
-
-	enhancement, err := workflowExecutor.orchestrator.geminiService.EnhanceQueryForSearch(ctx, workflowExecutor.workflowCtx.Query, contextMap)
-	if err != nil {
-		return fmt.Errorf("query enhancement failed : %w", err)
-	}
-
-	if enhancement.EnhancedQuery != "" {
-		workflowExecutor.workflowCtx.Metadata["original_query"] = workflowExecutor.workflowCtx.Query
-		workflowExecutor.workflowCtx.Metadata["enhanced_query"] = enhancement.EnhancedQuery
-
-		workflowExecutor.workflowCtx.Query = enhancement.EnhancedQuery
-	}
-
-	workflowExecutor.workflowCtx.ProcessingStats.APICallsCount++
-
-	workflowExecutor.workflowCtx.UpdateAgentStats("query_enhancer",
-		models.AgentStats{
-			Name:      "query_enhancer",
-			Duration:  time.Since(startTime),
-			Status:    string(models.AgentStatusCompleted),
-			StartTime: startTime,
-			EndTime:   time.Now(),
-		})
-
-	if err := workflowExecutor.publishAgentUpdate(ctx, "query_enhancer",
-		models.AgentStatusCompleted,
-		fmt.Sprintf("Enhanced Query : %s", enhancement.EnhancedQuery)); err != nil {
-		workflowExecutor.logger.WithError(err).Error("Failed to publish query enhancer completion update")
-	}
-
-	return nil
-
-}
-
-func (workflowExecutor *WorkflowExecutor) fetchStoreAndSearchArticles(ctx context.Context) error {
-
-	if err := workflowExecutor.fetchFreshNewsArticles(ctx); err != nil {
-		return fmt.Errorf("Fetching Fresh News Articles failed : %w ", err)
-	}
-
-	if err := workflowExecutor.generateNewsEmbeddings(ctx); err != nil {
-		return fmt.Errorf("Generate Fresh News Embeddings failed : %w ", err)
-	}
-
-	if err := workflowExecutor.storeFreshNewsArticles(ctx); err != nil {
-		workflowExecutor.logger.WithError(err).Warn("Failed to store Fresh News Articles , proceeding without it")
-	}
-
-	if err := workflowExecutor.getRelevantArticles(ctx); err != nil {
-		workflowExecutor.logger.WithError(err).Warn("Vector Search On ChromaDB failed , using fresh Articles only")
-		workflowExecutor.fallbackToFreshArticles(ctx)
-	}
-
-	return nil
-}
-
+// Updated: Use enhanced query for news fetching
 func (workflowExecutor *WorkflowExecutor) fetchFreshNewsArticles(ctx context.Context) error {
 	startTime := time.Now()
 
@@ -794,31 +896,36 @@ func (workflowExecutor *WorkflowExecutor) fetchFreshNewsArticles(ctx context.Con
 	if len(workflowExecutor.workflowCtx.Keywords) > 0 {
 		freshArticles, err = workflowExecutor.orchestrator.newsService.SearchByKeywords(ctx, workflowExecutor.workflowCtx.Keywords, 15)
 		if err != nil {
-			workflowExecutor.logger.WithError(err).Error("Keyword Search Failed , trying recent news")
+			workflowExecutor.logger.WithError(err).Error("Keyword Search Failed, trying recent news")
 		}
 	}
 
 	if len(freshArticles) == 0 {
-		freshArticles, err = workflowExecutor.orchestrator.newsService.SearchRecentNews(ctx, workflowExecutor.workflowCtx.Query, 48, 15)
+		// Use enhanced query if available, otherwise original
+		queryForNews := workflowExecutor.workflowCtx.EnhancedQuery
+		if queryForNews == "" {
+			queryForNews = workflowExecutor.workflowCtx.OriginalQuery
+		}
+
+		freshArticles, err = workflowExecutor.orchestrator.newsService.SearchRecentNews(ctx, queryForNews, 48, 15)
 		if err != nil {
-			return fmt.Errorf("News Search Failed : %w", err)
+			return fmt.Errorf("News Search Failed: %w", err)
 		}
 	}
 
 	workflowExecutor.workflowCtx.Metadata["fresh_articles"] = freshArticles
 	workflowExecutor.workflowCtx.ProcessingStats.ArticlesFound = len(freshArticles)
 
-	workflowExecutor.workflowCtx.UpdateAgentStats("news_fetch",
-		models.AgentStats{
-			Name:      "news_fetch",
-			Duration:  time.Since(startTime),
-			Status:    string(models.AgentStatusCompleted),
-			StartTime: startTime,
-			EndTime:   time.Now(),
-		})
+	duration := time.Since(startTime)
+	workflowExecutor.workflowCtx.UpdateAgentStats("news_fetch", models.AgentStats{
+		Name:      "news_fetch",
+		Duration:  duration,
+		Status:    string(models.AgentStatusCompleted),
+		StartTime: startTime,
+		EndTime:   time.Now(),
+	})
 
-	if err := workflowExecutor.publishAgentUpdate(ctx, "news_fetch",
-		models.AgentStatusCompleted,
+	if err := workflowExecutor.publishAgentUpdate(ctx, "news_fetch", models.AgentStatusCompleted,
 		fmt.Sprintf("Fetched %d Fresh Articles", len(freshArticles))); err != nil {
 		workflowExecutor.logger.WithError(err).Error("Failed to publish news_fetch completion update")
 	}
@@ -826,6 +933,7 @@ func (workflowExecutor *WorkflowExecutor) fetchFreshNewsArticles(ctx context.Con
 	return nil
 }
 
+// Updated: Generate embeddings using enhanced query
 func (workflowExecutor *WorkflowExecutor) generateNewsEmbeddings(ctx context.Context) error {
 	startTime := time.Now()
 
@@ -839,9 +947,15 @@ func (workflowExecutor *WorkflowExecutor) generateNewsEmbeddings(ctx context.Con
 		return fmt.Errorf("No new fresh articles found for embedding generation")
 	}
 
-	queryEmbedding, err := workflowExecutor.orchestrator.ollamaService.GenerateEmbedding(ctx, workflowExecutor.workflowCtx.Query)
+	// Use enhanced query for embedding if available
+	queryForEmbedding := workflowExecutor.workflowCtx.EnhancedQuery
+	if queryForEmbedding == "" {
+		queryForEmbedding = workflowExecutor.workflowCtx.OriginalQuery
+	}
+
+	queryEmbedding, err := workflowExecutor.orchestrator.ollamaService.GenerateEmbedding(ctx, queryForEmbedding)
 	if err != nil {
-		return fmt.Errorf("Failed to generate user query embedding : %w", err)
+		return fmt.Errorf("Failed to generate user query embedding: %w", err)
 	}
 
 	articleTexts := make([]string, len(freshArticles))
@@ -851,16 +965,17 @@ func (workflowExecutor *WorkflowExecutor) generateNewsEmbeddings(ctx context.Con
 
 	articleEmbeddings, err := workflowExecutor.orchestrator.ollamaService.BatchGenerateEmbeddings(ctx, articleTexts)
 	if err != nil {
-		return fmt.Errorf("article embeddings generation failed : %w", err)
+		return fmt.Errorf("article embeddings generation failed: %w", err)
 	}
 
-	workflowExecutor.workflowCtx.Metadata["query_embeddings"] = (queryEmbedding)
-	workflowExecutor.workflowCtx.Metadata["fresh_article_embeddings"] = len(articleEmbeddings)
+	workflowExecutor.workflowCtx.Metadata["query_embeddings"] = queryEmbedding
+	workflowExecutor.workflowCtx.Metadata["fresh_article_embeddings"] = articleEmbeddings
 	workflowExecutor.workflowCtx.ProcessingStats.EmbeddingsCount = len(articleEmbeddings) + 1
 
+	duration := time.Since(startTime)
 	workflowExecutor.workflowCtx.UpdateAgentStats("embedding_generation", models.AgentStats{
 		Name:      "embedding_generation",
-		Duration:  time.Since(startTime),
+		Duration:  duration,
 		Status:    string(models.AgentStatusCompleted),
 		StartTime: startTime,
 		EndTime:   time.Now(),
@@ -872,9 +987,30 @@ func (workflowExecutor *WorkflowExecutor) generateNewsEmbeddings(ctx context.Con
 	}
 
 	return nil
-
 }
 
+// Keep the rest of the methods as they are, but remove the old parallel processing method
+// and add a compatibility alias for the old method name
+
+func (workflowExecutor *WorkflowExecutor) KeywordExtractionAndQueryEnhancement(ctx context.Context) error {
+	workflowExecutor.logger.Warn("KeywordExtractionAndQueryEnhancement is deprecated, use executeSequentialQueryProcessing instead")
+	return workflowExecutor.executeSequentialQueryProcessing(ctx, &IntentClassificationResult{
+		Intent:     workflowExecutor.workflowCtx.Intent,
+		Confidence: 1.0,
+		Reasoning:  "Legacy method call",
+	})
+}
+
+// Deprecated methods - kept for compatibility
+func (workflowExecutor *WorkflowExecutor) extractKeywords(ctx context.Context) error {
+	return workflowExecutor.extractKeywordsFromEnhancedQuery(ctx, workflowExecutor.workflowCtx.OriginalQuery)
+}
+
+func (workflowExecutor *WorkflowExecutor) enhanceQuery(ctx context.Context) error {
+	return workflowExecutor.enhanceQueryWithContext(ctx, workflowExecutor.workflowCtx.OriginalQuery)
+}
+
+// Keep all the remaining methods unchanged (storeFreshNewsArticles, getRelevantArticles, etc.)
 func (workflowExecutor *WorkflowExecutor) storeFreshNewsArticles(ctx context.Context) error {
 	startTime := time.Now()
 	if err := workflowExecutor.publishAgentUpdate(ctx, "vector_storage",
@@ -894,12 +1030,13 @@ func (workflowExecutor *WorkflowExecutor) storeFreshNewsArticles(ctx context.Con
 
 	err := workflowExecutor.orchestrator.chromaDBService.StoreArticles(ctx, freshArticles, freshEmbeddings)
 	if err != nil {
-		return fmt.Errorf("Failed to store fresh articles in ChromaDB : %w", err)
+		return fmt.Errorf("Failed to store fresh articles in ChromaDB: %w", err)
 	}
 
+	duration := time.Since(startTime)
 	workflowExecutor.workflowCtx.UpdateAgentStats("vector_storage", models.AgentStats{
 		Name:      "vector_storage",
-		Duration:  time.Since(startTime),
+		Duration:  duration,
 		Status:    string(models.AgentStatusCompleted),
 		StartTime: startTime,
 		EndTime:   time.Now(),
@@ -928,7 +1065,6 @@ func (workflowExecutor *WorkflowExecutor) getRelevantArticles(ctx context.Contex
 		return fmt.Errorf("Query Embedding not found in metadata")
 	}
 
-	// Fixed orchestrator code
 	searchResults, err := workflowExecutor.orchestrator.chromaDBService.SearchSimilarArticles(ctx, queryEmbedding, 20, nil)
 	if err != nil {
 		return fmt.Errorf("ChromaDB Semantic Search Failed: %w", err)
@@ -939,35 +1075,40 @@ func (workflowExecutor *WorkflowExecutor) getRelevantArticles(ctx context.Contex
 		semanticallySimilarArticles = append(semanticallySimilarArticles, searchResult.Document)
 	}
 
-	contextMap := map[string]interface{}{
-		"user_query": workflowExecutor.workflowCtx.Query,
-		"keywords":   workflowExecutor.workflowCtx.Keywords,
+	// Use enhanced query for relevance evaluation
+	queryForRelevance := workflowExecutor.workflowCtx.EnhancedQuery
+	if queryForRelevance == "" {
+		queryForRelevance = workflowExecutor.workflowCtx.OriginalQuery
 	}
 
-	//relevantArticles, err := workflowExecutor.orchestrator.geminiService.GetRelevantArticles(ctx, semanticallySimilarArticles, contextMap)
-	//if err != nil {
-	//	return fmt.Errorf("Relevancy evaluation failed: %w", err)
-	//}
-	var relevantArticles []models.NewsArticle
-	var moreArticles []models.NewsArticle
-	freshArticles, _ := workflowExecutor.workflowCtx.Metadata["fresh_articles"].([]models.NewsArticle)
-	moreArticles, err = workflowExecutor.orchestrator.geminiService.GetRelevantArticles(ctx, freshArticles, contextMap)
+	contextMap := map[string]interface{}{
+		"user_query":     queryForRelevance,
+		"keywords":       workflowExecutor.workflowCtx.Keywords,
+		"original_query": workflowExecutor.workflowCtx.OriginalQuery,
+	}
 
-	relevantArticles = append(relevantArticles, moreArticles...)
+	var relevantArticles []models.NewsArticle
+	freshArticles, _ := workflowExecutor.workflowCtx.Metadata["fresh_articles"].([]models.NewsArticle)
+	moreArticles, err := workflowExecutor.orchestrator.geminiService.GetRelevantArticles(ctx, freshArticles, contextMap)
+	if err == nil {
+		relevantArticles = append(relevantArticles, moreArticles...)
+	}
 
 	workflowExecutor.workflowCtx.Articles = relevantArticles
 	workflowExecutor.workflowCtx.ProcessingStats.APICallsCount++
 	workflowExecutor.workflowCtx.ProcessingStats.ArticlesFiltered = len(relevantArticles)
 
+	duration := time.Since(startTime)
 	workflowExecutor.workflowCtx.UpdateAgentStats("relevancy_agent", models.AgentStats{
 		Name:      "relevancy_agent",
-		Duration:  time.Since(startTime),
+		Duration:  duration,
 		Status:    string(models.AgentStatusCompleted),
 		StartTime: startTime,
 		EndTime:   time.Now(),
 	})
 
-	if err := workflowExecutor.publishAgentUpdate(ctx, "relevancy_agent", models.AgentStatusCompleted, fmt.Sprintf("Selected %d relevant articles from semantic search", len(relevantArticles))); err != nil {
+	if err := workflowExecutor.publishAgentUpdate(ctx, "relevancy_agent", models.AgentStatusCompleted,
+		fmt.Sprintf("Selected %d relevant articles from semantic search", len(relevantArticles))); err != nil {
 		workflowExecutor.logger.WithError(err).Error("Failed to publish relevancy agent completion update")
 	}
 
@@ -997,9 +1138,30 @@ func (workflowExecutor *WorkflowExecutor) fallbackToFreshArticles(ctx context.Co
 
 	workflowExecutor.workflowCtx.Articles = fallbackArticles
 	workflowExecutor.logger.Warn("Using fallback articles due to vector search failure", "article_count", len(fallbackArticles))
-
 }
 
+func (workflowExecutor *WorkflowExecutor) fetchStoreAndSearchArticles(ctx context.Context) error {
+	if err := workflowExecutor.fetchFreshNewsArticles(ctx); err != nil {
+		return fmt.Errorf("Fetching Fresh News Articles failed: %w", err)
+	}
+
+	if err := workflowExecutor.generateNewsEmbeddings(ctx); err != nil {
+		return fmt.Errorf("Generate Fresh News Embeddings failed: %w", err)
+	}
+
+	if err := workflowExecutor.storeFreshNewsArticles(ctx); err != nil {
+		workflowExecutor.logger.WithError(err).Warn("Failed to store Fresh News Articles, proceeding without it")
+	}
+
+	if err := workflowExecutor.getRelevantArticles(ctx); err != nil {
+		workflowExecutor.logger.WithError(err).Warn("Vector Search On ChromaDB failed, using fresh Articles only")
+		workflowExecutor.fallbackToFreshArticles(ctx)
+	}
+
+	return nil
+}
+
+// Keep all the utility methods unchanged
 func (orchestrator *Orchestrator) GetWorkflowStatus(workflowID string) (*models.WorkflowContext, error) {
 	if workflow, exists := orchestrator.activeWorkflows.Load(workflowID); exists {
 		return workflow.(*models.WorkflowContext), nil
@@ -1054,19 +1216,32 @@ func (orchestrator *Orchestrator) GetStats() map[string]interface{} {
 	uptime := time.Since(orchestrator.startTime)
 
 	return map[string]interface{}{
-		"service":             "orchestrator",
+		"service":             "enhanced_conversational_orchestrator",
+		"version":             "2.0",
 		"uptime_seconds":      uptime.Seconds(),
 		"active_workflows":    orchestrator.GetActiveWorkflowsCount(),
 		"agent_configs":       len(orchestrator.agentConfigs),
-		"supported_workflows": []string{"news", "chitchat"},
-		"news_agents":         []string{"memory", "classifier", "keyword_extractor", "query_enhancer", "news_fetch", "embedding_generation", "vector_storage", "relevancy_agent", "scrapper", "summarizer", "persona"},
-		"chitchat_agents":     []string{"memory", "classifier", "chitchat"},
-		"optimizations":       []string{"parallel_query_processing", "fetch_store_search_all", "content_enhancement"},
+		"supported_workflows": []string{"news", "chitchat", "follow_up_discussion"},
+		"news_agents":         newsWorkflowAgents,
+		"chitchat_agents":     chitchatWorkflowAgents,
+		"followup_agents":     followUpWorkflowAgents,
+		"features": []string{
+			"conversational_context",
+			"sequential_query_processing",
+			"follow_up_detection",
+			"contextual_responses",
+			"conversation_memory",
+		},
+		"optimizations": []string{
+			"sequential_query_enhancement",
+			"conversation_aware_processing",
+			"contextual_keyword_extraction",
+		},
 	}
 }
 
 func (orchestrator *Orchestrator) Close() error {
-	orchestrator.logger.Info("Orchestrator shutting down")
+	orchestrator.logger.Info("Enhanced Conversational Orchestrator shutting down")
 
 	timeout := time.After(30 * time.Second)
 	ticker := time.NewTicker(1 * time.Second)
@@ -1082,7 +1257,7 @@ func (orchestrator *Orchestrator) Close() error {
 			return nil
 		case <-ticker.C:
 			if orchestrator.GetActiveWorkflowsCount() == 0 {
-				orchestrator.logger.Info("All workflows completed, orchestrator closed")
+				orchestrator.logger.Info("All workflows completed, enhanced orchestrator closed")
 				return nil
 			}
 		}
