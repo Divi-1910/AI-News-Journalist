@@ -53,6 +53,7 @@ type ConversationContext struct {
 	MessageCount     int             `json:"message_count"`
 	SessionStartTime time.Time       `json:"session_start_time"`
 	UserPreferences  UserPreferences `json:"user_preferences"`
+	LastResponses    []string        `json:"last_responses"`
 	UpdatedAt        time.Time       `json:"updated_at"`
 }
 

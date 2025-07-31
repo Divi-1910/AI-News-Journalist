@@ -136,6 +136,7 @@ class ContentLengthEnum(str, Enum):
     CONCISE = "concise"
     DETAILED = "detailed"
     COMPREHENSIVE = "comprehensive"
+    
 
 class UserPreferences(BaseModel):
     """User preferences schema"""
@@ -407,3 +408,14 @@ class AuthResponse(BaseModel):
     user: UserResponse
     isNewUser: bool
     message: Optional[str] = None
+
+class SendUserPreferences(BaseModel):
+    news_personality : NewsPersonalityEnum
+    favourite_topcis : List[str] = Field(default_factory=list)
+    content_length : ContentLengthEnum = ContentLengthEnum.DETAILED
+
+class ChatRequest(BaseModel):
+    user_id : str 
+    query: str
+    user_preferences: UserPreferences = Field(default_factory=UserPreferences)
+    

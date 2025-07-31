@@ -375,11 +375,8 @@ func (workflowExecutor *WorkflowExecutor) updateMemoryAsync(ctx context.Context)
 
 	if len(workflowExecutor.workflowCtx.Keywords) > 0 {
 		allKeywords := append(updatedContext.RecentKeywords, workflowExecutor.workflowCtx.Keywords...)
-		if len(allKeywords) > 20 {
-			updatedContext.RecentKeywords = allKeywords[len(updatedContext.RecentKeywords)-20:]
-		} else {
-			updatedContext.RecentKeywords = allKeywords
-		}
+
+		updatedContext.RecentKeywords = allKeywords
 	}
 
 	if err := workflowExecutor.orchestrator.redisService.UpdateConversationContext(
@@ -726,10 +723,7 @@ func (workflowExecutor *WorkflowExecutor) enhanceQuery(ctx context.Context) erro
 	}
 
 	contextMap := map[string]interface{}{
-		"recent_topics":         workflowExecutor.workflowCtx.ConversationContext.RecentTopics,
-		"recent_keywords":       workflowExecutor.workflowCtx.ConversationContext.RecentKeywords,
-		"intent":                workflowExecutor.workflowCtx.Intent,
-		"preferred_user_topics": workflowExecutor.workflowCtx.ConversationContext.UserPreferences.FavouriteTopics,
+		"intent": workflowExecutor.workflowCtx.Intent,
 	}
 
 	enhancement, err := workflowExecutor.orchestrator.geminiService.EnhanceQueryForSearch(ctx, workflowExecutor.workflowCtx.Query, contextMap)
@@ -860,8 +854,8 @@ func (workflowExecutor *WorkflowExecutor) generateNewsEmbeddings(ctx context.Con
 		return fmt.Errorf("article embeddings generation failed : %w", err)
 	}
 
-	workflowExecutor.workflowCtx.Metadata["query_embeddings"] = queryEmbedding
-	workflowExecutor.workflowCtx.Metadata["fresh_article_embeddings"] = articleEmbeddings
+	workflowExecutor.workflowCtx.Metadata["query_embeddings"] = (queryEmbedding)
+	workflowExecutor.workflowCtx.Metadata["fresh_article_embeddings"] = len(articleEmbeddings)
 	workflowExecutor.workflowCtx.ProcessingStats.EmbeddingsCount = len(articleEmbeddings) + 1
 
 	workflowExecutor.workflowCtx.UpdateAgentStats("embedding_generation", models.AgentStats{
@@ -935,7 +929,7 @@ func (workflowExecutor *WorkflowExecutor) getRelevantArticles(ctx context.Contex
 	}
 
 	// Fixed orchestrator code
-	searchResults, err := workflowExecutor.orchestrator.chromaDBService.SearchSimilarArticles(ctx, queryEmbedding, 100, nil)
+	searchResults, err := workflowExecutor.orchestrator.chromaDBService.SearchSimilarArticles(ctx, queryEmbedding, 20, nil)
 	if err != nil {
 		return fmt.Errorf("ChromaDB Semantic Search Failed: %w", err)
 	}
@@ -946,14 +940,20 @@ func (workflowExecutor *WorkflowExecutor) getRelevantArticles(ctx context.Contex
 	}
 
 	contextMap := map[string]interface{}{
-		"user_query":    workflowExecutor.workflowCtx.Query,
-		"recent_topics": workflowExecutor.workflowCtx.Keywords,
+		"user_query": workflowExecutor.workflowCtx.Query,
+		"keywords":   workflowExecutor.workflowCtx.Keywords,
 	}
 
-	relevantArticles, err := workflowExecutor.orchestrator.geminiService.GetRelevantArticles(ctx, semanticallySimilarArticles, contextMap)
-	if err != nil {
-		return fmt.Errorf("Relevancy evaluation failed: %w", err)
-	}
+	//relevantArticles, err := workflowExecutor.orchestrator.geminiService.GetRelevantArticles(ctx, semanticallySimilarArticles, contextMap)
+	//if err != nil {
+	//	return fmt.Errorf("Relevancy evaluation failed: %w", err)
+	//}
+	var relevantArticles []models.NewsArticle
+	var moreArticles []models.NewsArticle
+	freshArticles, _ := workflowExecutor.workflowCtx.Metadata["fresh_articles"].([]models.NewsArticle)
+	moreArticles, err = workflowExecutor.orchestrator.geminiService.GetRelevantArticles(ctx, freshArticles, contextMap)
+
+	relevantArticles = append(relevantArticles, moreArticles...)
 
 	workflowExecutor.workflowCtx.Articles = relevantArticles
 	workflowExecutor.workflowCtx.ProcessingStats.APICallsCount++

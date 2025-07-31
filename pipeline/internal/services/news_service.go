@@ -161,6 +161,10 @@ func (service *NewsService) SearchEverything(ctx context.Context, req *SearchReq
 		"total_results":  len(result),
 	}, nil)
 
+	fmt.Println("news agent found : ")
+	fmt.Println(result)
+	fmt.Println()
+	
 	return result, nil
 }
 
@@ -227,15 +231,6 @@ func (service *NewsService) buildSearchQuery(req *SearchRequest) string {
 
 	if req.Query != "" {
 		queryParts = append(queryParts, req.Query)
-	}
-
-	if len(req.Keywords) > 0 {
-		keyWordQuery := strings.Join(req.Keywords, " AND ")
-		if req.Query != "" {
-			queryParts = append(queryParts, fmt.Sprintf("(%s)"), keyWordQuery)
-		} else {
-			queryParts = append(queryParts, keyWordQuery)
-		}
 	}
 
 	return strings.Join(queryParts, " AND ")
@@ -366,12 +361,15 @@ func (service *NewsService) makeAPIRequest(ctx context.Context, endpoint string,
 }
 
 func (service *NewsService) convertToDesiredFormat(apiArticles []APIArticles) []models.NewsArticle {
-	articles := make([]models.NewsArticle, len(apiArticles))
+	articles := make([]models.NewsArticle, 0, len(apiArticles))
 
 	for _, apiArticle := range apiArticles {
+		// Skip invalid articles
 		if apiArticle.Title == "" || apiArticle.URL == "" {
 			continue
 		}
+
+		// Parse published date with fallback
 		publishedAt, err := time.Parse("2006-01-02T15:04:05Z", apiArticle.PublishedAt)
 		if err != nil {
 			// Try alternative format
@@ -392,10 +390,12 @@ func (service *NewsService) convertToDesiredFormat(apiArticles []APIArticles) []
 			Description: apiArticle.Description,
 			Content:     apiArticle.Content,
 			ImageURL:    apiArticle.URLToImage,
+			Author:      apiArticle.Author,
 		}
 
 		articles = append(articles, article)
 	}
+
 	return articles
 }
 

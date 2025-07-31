@@ -13,3 +13,5 @@ pydantic
 email-validator
 requests
 jwt
+redis 
+httpx 

@@ -176,8 +176,8 @@ func (service *ChromaDBService) createCollection(ctx context.Context, collection
 	url := fmt.Sprintf("%s/api/v2/tenants/%s/databases/%s/collections", service.baseURL, service.tenant, service.database)
 
 	payload := map[string]interface{}{
-		"name":         collectionName.ID,
-		"metadata":     collectionName.Metadata,
+		"name":          collectionName.ID,
+		"metadata":      collectionName.Metadata,
 		"get_or_create": true,
 	}
 
@@ -286,6 +286,9 @@ func (service *ChromaDBService) StoreArticles(ctx context.Context, articles []mo
 			"source":          article.Source,
 			"author":          article.Author,
 			"published_at":    article.PublishedAt.Format(time.RFC3339),
+			"description":     article.Description,
+			"Content":         article.Content,
+			"image_url":       article.ImageURL,
 			"category":        article.Category,
 			"relevance_score": article.RelevanceScore,
 			"stored_at":       time.Now().Format(time.RFC3339),
@@ -386,6 +389,9 @@ func (service *ChromaDBService) SearchSimilarArticles(ctx context.Context, query
 
 	results := service.convertToSearchResults(queryResponse)
 
+	fmt.Println("Semantically similar articles result :")
+	fmt.Println(results)
+
 	service.logger.LogService("chromadb", "search_similar_articles", time.Since(startTime), map[string]interface{}{
 		"top_k":         topK,
 		"results_count": len(results),
@@ -429,6 +435,8 @@ func (service *ChromaDBService) convertToSearchResults(queryResponse *QueryRespo
 			URL:            getString(metadata, "url"),
 			Source:         getString(metadata, "source"),
 			Author:         getString(metadata, "author"),
+			ImageURL:       getString(metadata, "image_url"),
+			Content:        getString(metadata, "content"),
 			PublishedAt:    publishedAt,
 			Description:    documents[i],
 			Category:       getString(metadata, "category"),
@@ -581,7 +589,7 @@ func (service *ChromaDBService) queryCollection(ctx context.Context, collectionN
 	}
 
 	url := fmt.Sprintf("%s/api/v2/tenants/%s/databases/%s/collections/%s/query", service.baseURL, service.tenant, service.database, collectionID)
-	
+
 	// Convert v1 query request to v2 format
 	v2Request := map[string]interface{}{
 		"query_embeddings": queryRequest.QueryEmbeddings,
