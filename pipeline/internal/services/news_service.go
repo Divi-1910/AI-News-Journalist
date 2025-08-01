@@ -70,7 +70,7 @@ type HeadlinesRequest struct {
 const (
 	NewsAPIBaseURL  = "https://newsapi.org/v2"
 	MaxPageSize     = 100
-	DefaultPageSize = 20
+	DefaultPageSize = 100
 )
 
 func NewNewsService(config config.EtcConfig, logger *logger.Logger) (*NewsService, error) {
@@ -132,7 +132,7 @@ func (service *NewsService) SearchEverything(ctx context.Context, req *SearchReq
 	service.logger.LogService("news_api", "search_everything", 0, map[string]interface{}{
 		"query":     req.Query,
 		"keywords":  req.Keywords,
-		"page_size": req.PageSize,
+		"page_size": 100,
 		"page":      req.Page,
 		"sort_by":   req.SortBy,
 	}, nil)
@@ -164,7 +164,7 @@ func (service *NewsService) SearchEverything(ctx context.Context, req *SearchReq
 	fmt.Println("news agent found : ")
 	fmt.Println(result)
 	fmt.Println()
-	
+
 	return result, nil
 }
 
@@ -279,7 +279,7 @@ func (service *NewsService) SearchByKeywords(ctx context.Context, keywords []str
 
 	req := &SearchRequest{
 		Keywords: keywords,
-		Query:    strings.Join(keywords, " AND "),
+		Query:    strings.Join(keywords, " OR "),
 		PageSize: maxResults,
 		Page:     1,
 		SortBy:   "popularity",

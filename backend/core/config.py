@@ -51,10 +51,11 @@ class Settings(BaseSettings):
     SECRET_KEY: str = "dummy_secret_key"
     
     #Pipeline service configuration
-    PIPELINE_SERVICE_URL: str = "http://localhost:8080"
+    AI_PIPELINE_URL: str = "http://localhost:8080"
+    AI_PIPELINE_TIMEOUT: int = 300
     
-    REDIS_STREAM_URL: str = "redis://redis-streams:6378"
-    REDIS_MEMORY_URL: str = "redis://redis-memory:6380"
+    REDIS_STREAMS_URL: str = "redis://localhost:6378"
+    REDIS_MEMORY_URL: str = "redis://localhost:6380"
     # External Services
     WORKFLOW_MANAGER_URL: str = "http://localhost:8080"
     

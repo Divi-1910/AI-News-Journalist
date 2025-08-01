@@ -20,14 +20,13 @@ class PreferencesUpdateRequest(BaseModel):
     """Request model for updating user preferences"""
     news_personality: Optional[NewsPersonalityEnum] = None
     favorite_topics: Optional[List[str]] = Field(None, max_length=10)
-    # content_length: Optional[str] = Field(None, pattern="^(short|medium|detailed)$")
     onboarding_completed: Optional[bool] = None
 
 class OnboardingRequest(BaseModel):
     """Request model for completing onboarding"""
     news_personality: NewsPersonalityEnum = Field(..., description="Required news anchor personality")
     favorite_topics: Optional[List[str]] = Field(default_factory=list, max_length=10)
-    content_length: Optional[str] = Field(default="medium", pattern="^(short|medium|detailed)$")
+    content_length: Optional[str] = Field(default="detailed")
 
 async def get_current_user_dependency(credentials: HTTPAuthorizationCredentials = Depends(security)) -> User:
     """Dependency to get current authenticated user"""

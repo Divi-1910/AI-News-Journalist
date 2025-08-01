@@ -159,7 +159,12 @@ func (orchestrator *Orchestrator) ExecuteWorkflow(ctx context.Context, req *mode
 		orchestrator.logger.WithError(err).Error("Failed to store final workflow state")
 	}
 
-	if err := orchestrator.publishWorkflowUpdate(ctx, workflowCtx, models.UpdateTypeWorkflowCompleted, "Workflow Completed successfully"); err != nil {
+	// Send workflow completion with the actual response
+	finalMessage := workflowCtx.Response
+	if finalMessage == "" {
+		finalMessage = "Workflow Completed successfully"
+	}
+	if err := orchestrator.publishWorkflowUpdate(ctx, workflowCtx, models.UpdateTypeWorkflowCompleted, finalMessage); err != nil {
 		orchestrator.logger.WithError(err).Error("Failed to publish workflow completed update")
 	}
 
@@ -894,7 +899,7 @@ func (workflowExecutor *WorkflowExecutor) fetchFreshNewsArticles(ctx context.Con
 	var err error
 
 	if len(workflowExecutor.workflowCtx.Keywords) > 0 {
-		freshArticles, err = workflowExecutor.orchestrator.newsService.SearchByKeywords(ctx, workflowExecutor.workflowCtx.Keywords, 15)
+		freshArticles, err = workflowExecutor.orchestrator.newsService.SearchByKeywords(ctx, workflowExecutor.workflowCtx.Keywords, 90)
 		if err != nil {
 			workflowExecutor.logger.WithError(err).Error("Keyword Search Failed, trying recent news")
 		}

@@ -109,7 +109,7 @@ func (service *RedisService) PublishAgentUpdate(ctx context.Context, userID stri
 		"agent_name":  update.AgentName,
 		"status":      string(update.Status),
 		"message":     update.Message,
-		"progress":    fmt.Sprintf("%.2f", update.Progress),
+		"progress":    update.Progress,
 		"timestamp":   update.Timestamp.Format(time.RFC3339),
 		"retryable":   update.Retryable,
 	}

@@ -375,7 +375,13 @@ const EnhancedThinkingIndicator = ({ agentProgress, onExpand }) => {
     (a) => a.status === "completed"
   ).length;
   const totalCount = agentProgress.length;
-  const progress = totalCount > 0 ? (completedCount / totalCount) * 100 : 0;
+
+  // Use the highest progress value from agents for smoother animation
+  const maxProgress =
+    agentProgress.length > 0
+      ? Math.max(...agentProgress.map((a) => a.progress || 0)) * 100
+      : 0;
+  const progress = maxProgress;
 
   return (
     <div className="flex items-start gap-4 animate-fade-in-up">
@@ -395,11 +401,6 @@ const EnhancedThinkingIndicator = ({ agentProgress, onExpand }) => {
                   Anya is analyzing...
                 </span>
               </div>
-              {totalCount > 0 && (
-                <div className="text-sm text-gray-400">
-                  {completedCount}/{totalCount} agents complete
-                </div>
-              )}
             </div>
 
             <button
@@ -859,17 +860,37 @@ const Chat = () => {
 
         case "agent_update":
           setPendingAnalysis((prev) => {
-            if (!prev) return { agents: [data] };
+            if (!prev)
+              return {
+                agents: [
+                  {
+                    agent: data.agent_name,
+                    status: data.status,
+                    message: data.message,
+                    progress: data.progress
+                  }
+                ]
+              };
 
             const agents = [...prev.agents];
             const existingIndex = agents.findIndex(
-              (a) => a.agent === data.agent
+              (a) => a.agent === data.agent_name
             );
 
             if (existingIndex !== -1) {
-              agents[existingIndex] = { ...agents[existingIndex], ...data };
+              agents[existingIndex] = {
+                agent: data.agent_name,
+                status: data.status,
+                message: data.message,
+                progress: data.progress
+              };
             } else {
-              agents.push(data);
+              agents.push({
+                agent: data.agent_name,
+                status: data.status,
+                message: data.message,
+                progress: data.progress
+              });
             }
 
             return { ...prev, agents };
@@ -892,17 +913,41 @@ const Chat = () => {
           break;
 
         case "workflow_completed":
+          // Create assistant message with final response
+          if (data.final_response) {
+            const assistantMessage = {
+              id: Date.now().toString(),
+              type: "bot",
+              content: data.final_response,
+              timestamp: new Date().toISOString(),
+              agentAnalysis: pendingAnalysis?.agents || []
+            };
+            setMessages((prev) => [...prev, assistantMessage]);
+            playSound("receive");
+          }
+
+          setIsSending(false);
+          setPendingAnalysis(null);
           addToast("Analysis complete!", "success", 2000);
           break;
 
         case "workflow_error":
           const errorMessage =
-            data.error || "An unknown error occurred during analysis";
-          setError(errorMessage);
-          addToast(errorMessage, "error");
+            data.error || "An error occurred during analysis";
+
+          // Create error message as chat response
+          const errorChatMessage = {
+            id: Date.now().toString(),
+            type: "bot",
+            content: `I apologize, but I encountered an issue while processing your request: **${errorMessage}**\n\nPlease try again in a few moments. If the problem persists, it might be due to high demand on our AI services.`,
+            timestamp: new Date().toISOString(),
+            agentAnalysis: pendingAnalysis?.agents || []
+          };
+
+          setMessages((prev) => [...prev, errorChatMessage]);
           setIsSending(false);
           setPendingAnalysis(null);
-          playSound("error");
+          playSound("receive");
           break;
 
         case "heartbeat":
@@ -1011,7 +1056,6 @@ const Chat = () => {
     [addToast]
   );
 
-  // Utility functions
   const cleanup = () => {
     if (eventSourceRef.current) {
       eventSourceRef.current.close();
@@ -1036,24 +1080,9 @@ const Chat = () => {
     const welcomeMessage = {
       id: "welcome",
       type: "bot",
-      content: `# Welcome to Anya! 👋
+      content: `# Hiii I'm Anya !! 👋
 
 I'm your personalized AI news anchor, powered by advanced multi-agent analysis technology.
-
-## What I can do for you:
-- 🔍 **Intelligent Analysis**: I use multiple AI agents to understand your questions
-- 🌍 **Global News Search**: Access to thousands of news sources worldwide  
-- ⚡ **Real-time Processing**: Watch as my agents work together to find relevant information
-- 🎨 **Personalized Style**: Responses tailored to your preferred news personality
-- 📊 **Transparent Process**: See exactly how I analyze and process information
-
-## Try asking me about:
-- Current events and breaking news
-- Technology and AI developments  
-- Market trends and analysis
-- Scientific discoveries
-- Or anything else you're curious about!
-
 *Ready to get started? Ask me anything!* ✨`,
       timestamp: new Date().toISOString(),
       sources: []
@@ -1063,7 +1092,7 @@ I'm your personalized AI news anchor, powered by advanced multi-agent analysis t
 
   const clearChat = async () => {
     try {
-      // You could implement a clear chat API endpoint here
+      await ChatApi.clearChat();
       setMessages([]);
       showWelcomeMessage();
       addToast("Chat history cleared", "success");
@@ -1072,7 +1101,6 @@ I'm your personalized AI news anchor, powered by advanced multi-agent analysis t
     }
   };
 
-  // Loading screen
   if (isLoadingHistory) {
     return (
       <div className="h-screen w-screen bg-slate-900 flex items-center justify-center">

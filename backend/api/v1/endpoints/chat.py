@@ -62,7 +62,6 @@ async def get_chat_history(
 @router.post("/send", response_model=SendMessageResponse)
 async def send_message(
     request: SendMessageRequest,
-    background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user)
 ):
     """Send a message and initiate AI workflow with real-time updates"""
@@ -74,18 +73,9 @@ async def send_message(
         if len(request.message) > 2000:
             raise HTTPException(status_code=400, detail="Message too long")
         
-        # Process user message
         result = await chat_service.send_message(
             google_id=current_user.google_id,
             message_content=request.message.strip()
-        )
-        
-        # Start background workflow processing
-        background_tasks.add_task(
-            process_workflow_background,
-            current_user.google_id,
-            result["workflow_id"],
-            request.message.strip()
         )
         
         return SendMessageResponse(
@@ -100,6 +90,7 @@ async def send_message(
     except Exception as e:
         logger.error(f"Error sending message: {str(e)}")
         raise HTTPException(status_code=500, detail="Failed to send message")
+
 
 async def get_current_user_from_token(token: str):
     """Get current user from token for SSE"""
@@ -182,12 +173,7 @@ async def clear_chat_history(
 ):
     """Clear chat history for the current user"""
     try:
-        user = await User.find_one({"google_id": current_user.google_id})
-        if not user:
-            raise HTTPException(status_code=404, detail="User not found")
-        
-        user.clear_chat_history(preserve_long_term_context=preserve_context)
-        await user.save()
+        result = await chat_service.clear_chat_history(current_user.google_id)
         
         return ClearChatResponse(
             success=True, 
@@ -259,26 +245,7 @@ async def chat_health_check():
         raise HTTPException(status_code=503, detail="Chat service unhealthy")
 
 
-async def process_workflow_background(google_id: str, workflow_id: str, message: str):
-    """Background task to process the AI workflow with real-time SSE updates"""
-    try:
-        # Process the full workflow with live updates
-        await chat_service.process_mock_workflow(
-            google_id=google_id,
-            workflow_id=workflow_id,
-            user_message=message
-        )
-        
-    except Exception as e:
-        logger.error(f"Background workflow error for {google_id}: {str(e)}")
-        
-        # Send error via SSE
-        await sse_manager.send_to_user(google_id, {
-            "type": "workflow_error",
-            "workflow_id": workflow_id,
-            "error": f"Processing failed: {str(e)}",
-            "timestamp": datetime.utcnow().isoformat()
-        })
+
 
 @router.post("/test/send-sse")
 async def test_send_sse(
@@ -298,3 +265,16 @@ async def test_send_sse(
     except Exception as e:
         logger.error(f"Error sending test SSE: {str(e)}")
         raise HTTPException(status_code=500, detail="Failed to send test SSE message")
+
+@router.get("/test/redis-stream")
+async def test_redis_stream(
+    current_user: User = Depends(get_current_user)
+):
+    """Test endpoint to check Redis stream contents (for development/testing)"""
+    try:
+        result = await chat_service.test_redis_stream(current_user.google_id)
+        return result
+        
+    except Exception as e:
+        logger.error(f"Error testing Redis stream: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to test Redis stream")

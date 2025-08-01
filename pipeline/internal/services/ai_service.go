@@ -781,7 +781,7 @@ func (service *GeminiService) ExtractKeyWords(ctx context.Context, query string,
 
 	req := &GenerationRequest{
 		Prompt:          prompt,
-		Temperature:     &[]float32{0.2}[0], // low temperature for consistent extraction
+		Temperature:     &[]float32{0.2}[0],
 		SystemRole:      "You are an Expert Keyword Extractor for news search queries",
 		MaxTokens:       300,
 		DisableThinking: false,

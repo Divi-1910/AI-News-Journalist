@@ -50,7 +50,13 @@ func (workflowHandler *WorkflowHandler) ExecuteWorkflow(ctx *gin.Context) {
 		return
 	}
 
-	workflowID := models.GenerateWorkflowID()
+	// Use workflow_id from request if provided, otherwise generate new one
+	workflowID := req.WorkflowID
+	if workflowID == "" {
+		workflowID = models.GenerateWorkflowID()
+	}
+	
+	workflowHandler.logger.Info("Using workflow ID", "provided_id", req.WorkflowID, "final_id", workflowID)
 
 	worflowRequest := &models.WorkflowRequest{
 		UserID:          req.UserID,

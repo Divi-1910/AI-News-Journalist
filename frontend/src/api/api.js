@@ -224,6 +224,16 @@ export const ChatApi = {
       console.log("Failed to send message : ", error);
       throw new Error(error.response?.data?.detail || "Failed to send message");
     }
+  },
+
+  clearChat: async () => {
+    try {
+      const response = await apiClient.delete(`/api/chats/clear`);
+      return response.data;
+    } catch (error) {
+      console.log("Failed to clear chat : ", error);
+      throw new Error(error.response?.data?.detail || "Failed to clear chat");
+    }
   }
 };
 

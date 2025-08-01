@@ -15,3 +15,4 @@ requests
 jwt
 redis 
 httpx 
+pydantic[email]

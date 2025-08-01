@@ -7,6 +7,7 @@ import (
 type ExecuteWorkflowRequest struct {
 	UserID          string          `json:"user_id"`
 	Query           string          `json:"query"`
+	WorkflowID      string          `json:"workflow_id"`
 	UserPreferences UserPreferences `json:"user_preferences"`
 }
 
