@@ -899,7 +899,7 @@ func (workflowExecutor *WorkflowExecutor) fetchFreshNewsArticles(ctx context.Con
 	var err error
 
 	if len(workflowExecutor.workflowCtx.Keywords) > 0 {
-		freshArticles, err = workflowExecutor.orchestrator.newsService.SearchByKeywords(ctx, workflowExecutor.workflowCtx.Keywords, 90)
+		freshArticles, err = workflowExecutor.orchestrator.newsService.SearchByKeywords(ctx, workflowExecutor.workflowCtx.Keywords, 100)
 		if err != nil {
 			workflowExecutor.logger.WithError(err).Error("Keyword Search Failed, trying recent news")
 		}
@@ -1006,7 +1006,6 @@ func (workflowExecutor *WorkflowExecutor) KeywordExtractionAndQueryEnhancement(c
 	})
 }
 
-// Deprecated methods - kept for compatibility
 func (workflowExecutor *WorkflowExecutor) extractKeywords(ctx context.Context) error {
 	return workflowExecutor.extractKeywordsFromEnhancedQuery(ctx, workflowExecutor.workflowCtx.OriginalQuery)
 }
@@ -1015,7 +1014,6 @@ func (workflowExecutor *WorkflowExecutor) enhanceQuery(ctx context.Context) erro
 	return workflowExecutor.enhanceQueryWithContext(ctx, workflowExecutor.workflowCtx.OriginalQuery)
 }
 
-// Keep all the remaining methods unchanged (storeFreshNewsArticles, getRelevantArticles, etc.)
 func (workflowExecutor *WorkflowExecutor) storeFreshNewsArticles(ctx context.Context) error {
 	startTime := time.Now()
 	if err := workflowExecutor.publishAgentUpdate(ctx, "vector_storage",
@@ -1037,6 +1035,9 @@ func (workflowExecutor *WorkflowExecutor) storeFreshNewsArticles(ctx context.Con
 	if err != nil {
 		return fmt.Errorf("Failed to store fresh articles in ChromaDB: %w", err)
 	}
+
+	workflowExecutor.workflowCtx.Metadata["fresh_article_embeddings"] = len(freshArticles)
+	delete(workflowExecutor.workflowCtx.Metadata, "query_embeddings")
 
 	duration := time.Since(startTime)
 	workflowExecutor.workflowCtx.UpdateAgentStats("vector_storage", models.AgentStats{

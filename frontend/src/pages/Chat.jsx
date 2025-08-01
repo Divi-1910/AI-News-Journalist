@@ -53,6 +53,7 @@ import {
 import { userAtom } from "../store/AuthStore";
 import { AuthApi, ChatApi } from "../api/api";
 import SettingsDialog from "../components/SettingsDialog";
+import WorkflowStats from "../components/WorkflowStats";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
 
@@ -1290,9 +1291,8 @@ I'm your personalized AI news anchor, powered by advanced multi-agent analysis t
                       dangerouslySetInnerHTML={{ __html: parsedContent }}
                     />
 
-                    {/* Sources */}
-                    {!isUser && msg.sources && (
-                      <MessageSources sources={msg.sources} />
+                    {!isUser && msg.workflow_stats && (
+                      <WorkflowStats stats={msg.workflow_stats} />
                     )}
 
                     {/* Analysis */}

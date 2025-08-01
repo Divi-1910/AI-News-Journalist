@@ -388,7 +388,7 @@ If answer is NO → Remove least essential keywords
 
 ---
 🎯 RESPONSE FORMAT:
-ENHANCED_QUERY: <4-6 strategic keywords optimized for maximum AND-based retrieval>
+ENHANCED_QUERY: <2-3 strategic keywords optimized for maximum OR-based retrieval>
 
 Remember: Success = Finding multiple relevant articles, not achieving keyword perfection.`,
 		query, conversationContext, userPrefs)
@@ -846,14 +846,14 @@ EXTRACTION STRATEGY:
    - Consider technical terms that journalists might use
 
 RESPONSE FORMAT:
-Return 15-25 keywords as a clean, comma-separated list optimized for news search APIs. Prioritize specific entities and technical terms over generic concepts.
+Return 5-10 keywords as a clean, comma-separated list optimized for news search APIs. Prioritize specific entities and technical terms over generic concepts.
 
 Example Transformations:
 Query: "drama with social media and AI regulation"
-Keywords: Facebook, Meta, Google, Twitter, artificial intelligence, algorithm regulation, FTC, EU AI Act, content moderation, machine learning, algorithmic bias, data privacy, tech regulation, Silicon Valley, congressional hearing
+Keywords: Facebook, Meta, Google, Twitter, artificial intelligence, algorithm regulation, FTC, EU AI Act
 
 Query: "tensions between India and China"  
-Keywords: India, China, border dispute, LAC, Galwan Valley, Modi, Xi Jinping, Himalayan border, Ladakh, diplomatic relations, military standoff, BRICS, trade relations, Doklam
+Keywords: India, China, border dispute, LAC, Galwan Valley, Modi, Xi Jinping, Himalayan border, Ladakh
 
 Now extract keywords for the given query:`, query, context)
 }

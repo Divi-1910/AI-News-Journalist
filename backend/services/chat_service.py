@@ -176,7 +176,7 @@ class ChatService:
                 json=pipeline_request,
                 headers={"Content-Type": "application/json"}
             )
-            
+                        
             print("############################################################" , response , "######################################################################")
             
             if response.status_code != 200:
@@ -357,16 +357,22 @@ class ChatService:
 
     
     async def _store_ai_response(self, google_id: str, workflow_id: str, response_content: str):
-        """Store AI response in database"""
+        """Store AI response in database with workflow stats"""
         try:
+            from services.workflow_stats_service import WorkflowStatsService
+            
             db = get_database()
             users_collection = db.users
+            
+            # Get workflow stats from Redis
+            workflow_stats = await WorkflowStatsService.get_workflow_stats_from_redis(workflow_id)
             
             # Create AI response message
             ai_message = ChatMessage(
                 type=MessageType.ASSISTANT,
                 content=response_content,
                 workflow_id=workflow_id,
+                workflow_stats=workflow_stats,
                 timestamp=datetime.utcnow()
             )
             

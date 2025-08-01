@@ -97,6 +97,7 @@ class ChatMessage(BaseModel):
     processing_time_total_ms : Optional[int] = None 
     
     workflow_id : Optional[str] = None 
+    workflow_stats : Optional[Dict[str, Any]] = None
     manager_service_data : Optional[Dict[str , Any]] = None 
     
     metadata : Optional[Dict[str, Any]] = None 
