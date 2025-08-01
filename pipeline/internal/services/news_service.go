@@ -282,7 +282,7 @@ func (service *NewsService) SearchByKeywords(ctx context.Context, keywords []str
 		Query:    strings.Join(keywords, " OR "),
 		PageSize: maxResults,
 		Page:     1,
-		SortBy:   "popularity",
+		SortBy:   "relevancy",
 		Language: "en",
 	}
 
