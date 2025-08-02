@@ -13,7 +13,7 @@ An intelligent news aggregation and personalization platform that delivers curat
 - **Scalable Architecture** - Microservices with FastAPI backend and Go pipeline
 
 ## 🏗️ Architecture
-High Level Design : https://github.com/Divi-1910/AI-News-Journalist/blob/main/High-Level-Design.png
+High Level Design : <img width="1474" height="816" alt="Image" src="https://github.com/user-attachments/assets/6bfe98d4-08c1-4d23-9b3a-a7614acd18a2" />
 
 Agent Pipeline Architecture : <img width="1195" height="719" alt="Image" src="https://github.com/user-attachments/assets/0e6a1f02-707f-43e6-b4ce-acc94dde79e8" />
 
