@@ -271,7 +271,7 @@ func (service *GeminiService) EnhanceQueryForSearch(ctx context.Context, query s
 		Prompt:          prompt,
 		Temperature:     &[]float32{0.3}[0],
 		SystemRole:      "You are an Expert Query Expansion Specialist for Enhanced Keyword Extraction",
-		MaxTokens:       500,
+		MaxTokens:       1000,
 		DisableThinking: false,
 	}
 
@@ -339,7 +339,7 @@ func (service *GeminiService) ClassifyIntent(ctx context.Context, query string, 
 		Prompt:          prompt,
 		Temperature:     &[]float32{0.1}[0], // low temperature for consistent classification
 		SystemRole:      "You are an expert Intent Classifer for a news AI Assistant.",
-		MaxTokens:       250,
+		MaxTokens:       2500,
 		DisableThinking: false,
 	}
 
@@ -401,7 +401,7 @@ func (service *GeminiService) ClassifyIntentWithContext(ctx context.Context, que
 		Prompt:          prompt,
 		Temperature:     &[]float32{0.2}[0], // Low temperature for consistent classification
 		SystemRole:      "You are an expert conversational intent classifier for a news AI assistant",
-		MaxTokens:       512,
+		MaxTokens:       5120,
 		DisableThinking: false,
 	}
 
