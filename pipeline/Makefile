@@ -1,9 +1,9 @@
-# Makefile for Anya AI Pipeline
+# Makefile for Infiya AI Pipeline
 
 .PHONY: test test-unit test-integration test-coverage build run clean help
 
 # Variables
-BINARY_NAME=anya-pipeline
+BINARY_NAME=Infiya-pipeline
 MAIN_PATH=./cmd/server
 TEST_TIMEOUT=30s
 COVERAGE_OUT=coverage.out

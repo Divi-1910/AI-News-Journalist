@@ -29,12 +29,17 @@ class WorkflowStatsService:
             # raw_query 
             # 
             
+            print("################################################################################################")
+            print("/n")
             print(workflow_context)
+            print("/n")
+            print("################################################################################################")
             
             stats = {
                 "intent": workflow_context.get("intent"),
                 "total_duration_ms": processing_stats.get("total_duration", 0) // 1000000,
-                "api_calls_count": processing_stats.get("api_calls_count", 0)
+                "api_calls_count": processing_stats.get("api_calls_count", 0),
+                "articles": workflow_context.get("")
             }
             
             await redis_client.close()

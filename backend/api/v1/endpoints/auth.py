@@ -54,7 +54,7 @@ async def google_auth(token_data: GoogleTokenData) -> AuthResponse:
             token=access_token,
             user=user_response,
             isNewUser=is_new_user,
-            message="Anya welcomes you!!" if is_new_user else "Anya welcomes you again!!"
+            message="Infiya welcomes you!!" if is_new_user else "Infiya welcomes you again!!"
         )
         
     except HTTPException:

@@ -1,9 +1,9 @@
 package services
 
 import (
-	"anya-ai-pipeline/internal/config"
-	"anya-ai-pipeline/internal/models"
-	"anya-ai-pipeline/internal/pkg/logger"
+	"Infiya-ai-pipeline/internal/config"
+	"Infiya-ai-pipeline/internal/models"
+	"Infiya-ai-pipeline/internal/pkg/logger"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -334,7 +334,7 @@ func (service *NewsService) makeAPIRequest(ctx context.Context, endpoint string,
 		return nil, fmt.Errorf("news api request creation failed: %w", err)
 	}
 
-	req.Header.Set("User-Agent", "Anya-AI-News-Assistant/1.0")
+	req.Header.Set("User-Agent", "Infiya-AI-News-Assistant/1.0")
 
 	resp, err := service.client.Do(req)
 	if err != nil {

@@ -1,7 +1,7 @@
 package routes
 
 import (
-	"anya-ai-pipeline/internal/handlers"
+	"Infiya-ai-pipeline/internal/handlers"
 
 	"github.com/gin-gonic/gin"
 )
@@ -15,7 +15,7 @@ func SetupRoutes(
 	// Root endpoint
 	router.GET("/", func(c *gin.Context) {
 		c.JSON(200, gin.H{
-			"service": "anya-ai-pipeline",
+			"service": "Infiya-ai-pipeline",
 			"version": "1.0.0",
 			"status":  "running",
 		})

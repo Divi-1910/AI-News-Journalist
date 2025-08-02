@@ -32,7 +32,7 @@ function ProtectedRoute({ children }) {
 
   useEffect(() => {
     const checkAuth = async () => {
-      const token = localStorage.getItem("anya_token");
+      const token = localStorage.getItem("Infiya_token");
 
       if (!token) {
         setIsAuthenticated(false);
@@ -48,8 +48,8 @@ function ProtectedRoute({ children }) {
       } catch (error) {
         console.error("Auth check failed:", error);
         // Token might be expired, remove it
-        localStorage.removeItem("anya_token");
-        localStorage.removeItem("anya_user_info");
+        localStorage.removeItem("Infiya_token");
+        localStorage.removeItem("Infiya_user_info");
         setIsAuthenticated(false);
         setUser(null);
       } finally {

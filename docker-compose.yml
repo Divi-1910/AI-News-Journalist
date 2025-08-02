@@ -1,15 +1,14 @@
-
 services:
   # MongoDB Database
   mongodb:
     image: mongo
-    container_name: anya_mongodb
+    container_name: Infiya_mongodb
     ports:
       - "27017:27017"
     volumes:
       - mongodb_data:/data/db
     environment:
-      MONGO_INITDB_DATABASE: Anya
+      MONGO_INITDB_DATABASE: Infiya
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "mongosh", "--quiet", "--eval", "db.runCommand('ping').ok"]
@@ -18,12 +17,12 @@ services:
       retries: 3
       start_period: 40s
     networks:
-      - anya_network
+      - Infiya_network
 
   # Redis for Streams (Manager Service <-> Backend communication)
   redis_streams:
     image: redis:7.2-alpine
-    container_name: anya_redis_streams
+    container_name: Infiya_redis_streams
     ports:
       - "6378:6379"
     volumes:
@@ -37,12 +36,12 @@ services:
       retries: 3
       start_period: 30s
     networks:
-      - anya_network
+      - Infiya_network
 
   # Redis for Short-term Memory Context
   redis_memory:
     image: redis:7.2-alpine
-    container_name: anya_redis_memory
+    container_name: Infiya_redis_memory
     ports:
       - "6380:6379"
     volumes:
@@ -56,12 +55,12 @@ services:
       retries: 3
       start_period: 30s
     networks:
-      - anya_network
+      - Infiya_network
 
   # ChromaDB Vector Database
   chromadb:
     image: chromadb/chroma:1.0.16.dev70
-    container_name: anya_chromadb
+    container_name: Infiya_chromadb
     ports:
       - "9000:8000"
     volumes:
@@ -78,18 +77,18 @@ services:
       retries: 3
       start_period: 30s
     networks:
-      - anya_network
+      - Infiya_network
 
   # Redis Commander (Web UI for Redis management)
   redis_commander:
     image: rediscommander/redis-commander:latest
-    container_name: anya_redis_ui
+    container_name: Infiya_redis_ui
     ports:
       - "8081:8081"
     environment:
-      - REDIS_HOSTS=streams:anya_redis_streams:6379:0,memory:anya_redis_memory:6379:0
+      - REDIS_HOSTS=streams:Infiya_redis_streams:6379:0,memory:Infiya_redis_memory:6379:0
       - HTTP_USER=admin
-      - HTTP_PASSWORD=anyaadmin
+      - HTTP_PASSWORD=Infiyaadmin
     restart: unless-stopped
     depends_on:
       redis_streams:
@@ -97,24 +96,24 @@ services:
       redis_memory:
         condition: service_healthy
     networks:
-      - anya_network
+      - Infiya_network
 
   # MongoDB Express (Web UI for MongoDB management)
   mongo_express:
     image: mongo-express:1.0.2
-    container_name: anya_mongo_ui
+    container_name: Infiya_mongo_ui
     ports:
       - "8082:8081"
     environment:
       ME_CONFIG_MONGODB_URL: mongodb://mongodb:27017/
       ME_CONFIG_BASICAUTH_USERNAME: admin
-      ME_CONFIG_BASICAUTH_PASSWORD: anyaadmin
+      ME_CONFIG_BASICAUTH_PASSWORD: Infiyaadmin
     restart: unless-stopped
     depends_on:
       mongodb:
         condition: service_healthy
     networks:
-      - anya_network
+      - Infiya_network
 
 volumes:
   mongodb_data:
@@ -127,7 +126,7 @@ volumes:
     driver: local
 
 networks:
-  anya_network:
+  Infiya_network:
     driver: bridge
     ipam:
       config:

@@ -202,7 +202,7 @@ class AuthService:
                 "exp": expire,
                 "iat": datetime.utcnow(),
                 "iss": settings.APP_NAME,
-                "aud": "anya-frontend"
+                "aud": "Infiya-frontend"
             }
             
             if additional_claims:
@@ -240,7 +240,7 @@ class AuthService:
             HTTPException: If token verification fails
         """
         try: 
-            payload = jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM], audience="anya-frontend", issuer=settings.APP_NAME)
+            payload = jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM], audience="Infiya-frontend", issuer=settings.APP_NAME)
             
             
             user_id = payload.get("user_id")

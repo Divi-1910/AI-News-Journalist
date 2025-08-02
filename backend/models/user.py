@@ -399,7 +399,7 @@ class AuthResponse(BaseModel):
                     "onboarding_completed": False
                 },
                 "isNewUser": True,
-                "message": "Welcome to Anya!"
+                "message": "Welcome to Infiya!"
             }
         }
     )

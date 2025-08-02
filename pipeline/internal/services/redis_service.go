@@ -1,9 +1,9 @@
 package services
 
 import (
-	"anya-ai-pipeline/internal/config"
-	"anya-ai-pipeline/internal/models"
-	"anya-ai-pipeline/internal/pkg/logger"
+	"Infiya-ai-pipeline/internal/config"
+	"Infiya-ai-pipeline/internal/models"
+	"Infiya-ai-pipeline/internal/pkg/logger"
 	"context"
 	"encoding/json"
 	"fmt"

@@ -1,8 +1,8 @@
-# Testing Guide for Anya AI Pipeline
+# Testing Guide for Infiya AI Pipeline
 
 ## Overview
 
-This document outlines the testing strategy and available tests for the Anya AI Pipeline.
+This document outlines the testing strategy and available tests for the Infiya AI Pipeline.
 
 ## Test Structure
 

@@ -1,4 +1,4 @@
-module anya-ai-pipeline
+module Infiya-ai-pipeline
 
 go 1.24.3
 

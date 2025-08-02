@@ -1,9 +1,9 @@
 package services
 
 import (
-	"anya-ai-pipeline/internal/config"
-	"anya-ai-pipeline/internal/models"
-	"anya-ai-pipeline/internal/pkg/logger"
+	"Infiya-ai-pipeline/internal/config"
+	"Infiya-ai-pipeline/internal/models"
+	"Infiya-ai-pipeline/internal/pkg/logger"
 	"context"
 	"fmt"
 	"net/url"
@@ -12,7 +12,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/PuerkitoBio/goquery"
 	"github.com/gocolly/colly/v2"
 	"github.com/gocolly/colly/v2/debug"
 )
@@ -60,16 +59,10 @@ type ScrapingResult struct {
 	Duration          time.Duration    `json:"duration"`
 }
 
-type ScoredElement struct {
-	Selection *goquery.Selection
-	Score     int
-	Text      string
-}
-
 func NewScraperService(config config.ScraperConfig, logger *logger.Logger) (*ScraperService, error) {
 	collector := colly.NewCollector(
 		colly.Debugger(&debug.LogDebugger{}),
-		colly.UserAgent("Anya-AI-News-Assistant/1.0 (+https://anya-ai.com/bot)"),
+		colly.UserAgent("Infiya-AI-News-Assistant/1.0 (+https://infiya-ai.com/bot)"),
 		colly.AllowedDomains(), // Allow all domains
 	)
 
@@ -100,11 +93,11 @@ func NewScraperService(config config.ScraperConfig, logger *logger.Logger) (*Scr
 	}
 
 	service.setupCallbacks()
-	logger.Info("Enhanced Scraper Service initialized successfully",
+	logger.Info("Infiya Scraper Service initialized successfully",
 		"rate_limit", "5 concurrent requests",
 		"delay", "3 seconds between requests",
 		"timeout", "60 seconds",
-		"content_extraction", "readability-enhanced")
+		"content_extraction", "p-tag-focused")
 
 	return service, nil
 }
@@ -138,7 +131,7 @@ func (service *ScraperService) ScrapeURL(ctx context.Context, targetURL string) 
 		return content, fmt.Errorf("Unsupported URL scheme: %s", parsedURL.Scheme)
 	}
 
-	service.logger.Info("Starting enhanced scrape",
+	service.logger.Info("Starting P-tag focused scrape",
 		"url", targetURL,
 		"domain", parsedURL.Host,
 		"scheme", parsedURL.Scheme)
@@ -176,7 +169,7 @@ func (service *ScraperService) ScrapeURL(ctx context.Context, targetURL string) 
 		r.Headers.Set("Sec-Fetch-Site", "none")
 		r.Headers.Set("Cache-Control", "max-age=0")
 
-		service.logger.Debug("Enhanced scraper request sent",
+		service.logger.Debug("P-tag scraper request sent",
 			"url", r.URL.String(),
 			"user_agent", userAgent[:50]+"...")
 	})
@@ -203,12 +196,12 @@ func (service *ScraperService) ScrapeURL(ctx context.Context, targetURL string) 
 		}
 
 		contentProcessed = true
-		service.logger.Debug("Processing HTML content with enhanced extraction",
+		service.logger.Debug("Processing HTML content with P-tag extraction",
 			"url", targetURL,
 			"html_length", len(e.Text))
 
-		// Enhanced content extraction
-		content.Content = service.extractArticleContent(e)
+		// P-TAG FOCUSED EXTRACTION - This is the key change!
+		content.Content = service.extractArticleContentFromParagraphs(e)
 		content.Title = service.extractTitle(e)
 		content.Description = service.extractDescription(e)
 		content.Author = service.extractAuthor(e)
@@ -224,14 +217,14 @@ func (service *ScraperService) ScrapeURL(ctx context.Context, targetURL string) 
 
 		content.Success = hasTitle || hasContent || hasDescription
 
-		service.logger.Info("Enhanced content extraction results",
+		service.logger.Info("P-tag extraction results",
 			"url", targetURL,
 			"has_title", hasTitle,
 			"has_content", hasContent,
 			"has_description", hasDescription,
 			"title", safeTruncate(content.Title, 50),
 			"content_length", len(content.Content),
-			"quality_score", service.calculateContentQuality(content),
+			"paragraph_count", strings.Count(content.Content, "\n\n")+1,
 			"success", content.Success)
 	})
 
@@ -275,7 +268,7 @@ func (service *ScraperService) ScrapeURL(ctx context.Context, targetURL string) 
 
 	select {
 	case <-done:
-		service.logger.Debug("Enhanced scraping completed", "url", targetURL)
+		service.logger.Debug("P-tag scraping completed", "url", targetURL)
 	case <-ctx.Done():
 		content.Error = "Context timeout"
 		content.Success = false
@@ -294,7 +287,7 @@ func (service *ScraperService) ScrapeURL(ctx context.Context, targetURL string) 
 	content.Title = strings.TrimSpace(content.Title)
 
 	duration := time.Since(startTime)
-	service.logger.LogService("scraper", "scraper_url_enhanced", duration, map[string]interface{}{
+	service.logger.LogService("scraper", "scraper_url_ptag", duration, map[string]interface{}{
 		"url":            targetURL,
 		"success":        content.Success,
 		"content_length": len(content.Content),
@@ -302,12 +295,177 @@ func (service *ScraperService) ScrapeURL(ctx context.Context, targetURL string) 
 		"description":    content.Description != "",
 		"status_code":    httpStatusCode,
 		"response_size":  responseSize,
-		"quality_score":  service.calculateContentQuality(content),
 		"error":          content.Error,
 	}, scrapingError)
 
 	return content, nil
 }
+
+// ================ P-TAG FOCUSED CONTENT EXTRACTION ================
+
+// extractArticleContentFromParagraphs - NEW METHOD focuses specifically on P tags
+func (service *ScraperService) extractArticleContentFromParagraphs(e *colly.HTMLElement) string {
+	var validParagraphs []string
+
+	service.logger.Debug("Starting P-tag focused extraction")
+
+	// Extract text from all P tags, including nested formatting tags
+	e.ForEach("p", func(i int, p *colly.HTMLElement) {
+		// Get all text within the p tag, including nested tags like <strong>, <b>, <em>, etc.
+		text := strings.TrimSpace(p.Text)
+
+		// Quality filters for paragraphs
+		if service.isValidParagraph(text) {
+			validParagraphs = append(validParagraphs, text)
+		}
+	})
+
+	// If we don't have enough good paragraphs, try paragraphs within article/main containers
+	if len(validParagraphs) < 3 {
+		service.logger.Debug("Low paragraph count, trying container-specific P tags", "count", len(validParagraphs))
+
+		containerSelectors := []string{"article", "main", ".article-content", ".post-content", ".entry-content", ".content"}
+
+		for _, selector := range containerSelectors {
+			e.ForEach(selector+" p", func(i int, p *colly.HTMLElement) {
+				text := strings.TrimSpace(p.Text)
+				if service.isValidParagraph(text) && !service.containsText(validParagraphs, text) {
+					validParagraphs = append(validParagraphs, text)
+				}
+			})
+
+			if len(validParagraphs) >= 3 {
+				break
+			}
+		}
+	}
+
+	content := strings.Join(validParagraphs, "\n\n")
+	content = service.cleanContent(content)
+
+	service.logger.Debug("P-tag extraction completed",
+		"paragraphs_found", len(validParagraphs),
+		"final_length", len(content))
+
+	return content
+}
+
+// isValidParagraph checks if a paragraph contains valid content
+func (service *ScraperService) isValidParagraph(text string) bool {
+	// Minimum length check
+	if len(text) < 50 {
+		return false
+	}
+
+	// Maximum length check (probably not a paragraph if too long)
+	if len(text) > 2000 {
+		return false
+	}
+
+	// Check for noise patterns
+	if service.isNoiseText(text) {
+		return false
+	}
+
+	// Check word count (good paragraphs have multiple words)
+	wordCount := len(strings.Fields(text))
+	if wordCount < 8 {
+		return false
+	}
+
+	// Check for excessive capitals (likely headers/navigation)
+	upperCount := 0
+	for _, r := range text {
+		if r >= 'A' && r <= 'Z' {
+			upperCount++
+		}
+	}
+	if len(text) > 0 && float64(upperCount)/float64(len(text)) > 0.5 {
+		return false
+	}
+
+	return true
+}
+
+// containsText checks if text is already in the slice (avoid duplicates)
+func (service *ScraperService) containsText(paragraphs []string, text string) bool {
+	for _, p := range paragraphs {
+		if p == text {
+			return true
+		}
+	}
+	return false
+}
+
+// isNoiseText checks if text contains common noise patterns
+func (service *ScraperService) isNoiseText(text string) bool {
+	lowerText := strings.ToLower(text)
+
+	noisePatterns := []string{
+		"subscribe", "newsletter", "advertisement", "cookie",
+		"privacy policy", "terms of service", "follow us",
+		"share this", "related articles", "read more",
+		"click here", "sign up", "log in", "contact us",
+		"trending now", "most popular", "you might also like",
+	}
+
+	for _, pattern := range noisePatterns {
+		if strings.Contains(lowerText, pattern) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// ================ ENHANCED CONTENT CLEANING ================
+
+// cleanContent performs aggressive content cleaning
+func (service *ScraperService) cleanContent(content string) string {
+	if content == "" {
+		return content
+	}
+
+	// Step 1: Normalize whitespace
+	re := regexp.MustCompile(`\s+`)
+	content = re.ReplaceAllString(content, " ")
+
+	// Step 2: Remove noise patterns
+	patterns := []string{
+		`(?i)javascript:void\(0\)`,
+		`(?i)advertisement`,
+		`(?i)sponsored content`,
+		`(?i)subscribe to.*newsletter`,
+		`(?i)follow us on`,
+		`(?i)share this article`,
+		`(?i)read more articles?`,
+		`(?i)click here for more`,
+		`(?i)privacy policy`,
+		`(?i)terms of service`,
+		`(?i)all rights reserved`,
+		`(?i)copyright \d+`,
+		`(?i)powered by`,
+	}
+
+	for _, pattern := range patterns {
+		re := regexp.MustCompile(pattern)
+		content = re.ReplaceAllString(content, "")
+	}
+
+	// Step 3: Clean formatting
+	re = regexp.MustCompile(`[.]{3,}`)
+	content = re.ReplaceAllString(content, "...")
+
+	re = regexp.MustCompile(`[-]{3,}`)
+	content = re.ReplaceAllString(content, "---")
+
+	// Step 4: Final cleanup
+	content = strings.TrimSpace(content)
+
+	return content
+}
+
+// ================ REMAINING METHODS FROM ORIGINAL ================
 
 func (service *ScraperService) ScrapeMultipleURLs(ctx context.Context, req *ScrapingRequest) (*ScrapingResult, error) {
 	if req == nil {
@@ -318,7 +476,7 @@ func (service *ScraperService) ScrapeMultipleURLs(ctx context.Context, req *Scra
 	}
 
 	startTime := time.Now()
-	service.logger.Info("Starting enhanced multiple URL scraping",
+	service.logger.Info("Starting P-tag focused multiple URL scraping",
 		"url_count", len(req.URLs),
 		"max_concurrency", req.MaxConcurrency,
 		"timeout", req.Timeout)
@@ -373,7 +531,7 @@ func (service *ScraperService) ScrapeMultipleURLs(ctx context.Context, req *Scra
 			requestCtx, cancel := context.WithTimeout(ctx, req.Timeout)
 			defer cancel()
 
-			service.logger.Debug("Scraping URL with enhanced extraction", "url", url, "index", index)
+			service.logger.Debug("Scraping URL with P-tag extraction", "url", url, "index", index)
 
 			content, err := service.ScrapeURL(requestCtx, url)
 			mu.Lock()
@@ -392,11 +550,11 @@ func (service *ScraperService) ScrapeMultipleURLs(ctx context.Context, req *Scra
 				return
 			}
 			if err != nil || !content.Success {
-				service.logger.Debug("Enhanced scraping failed", "url", url, "error", err, "success", content.Success)
+				service.logger.Debug("P-tag scraping failed", "url", url, "error", err, "success", content.Success)
 				result.FailedScrapes = append(result.FailedScrapes, *content)
 				result.TotalFailed++
 			} else {
-				service.logger.Debug("Enhanced scraping successful", "url", url, "content_length", len(content.Content))
+				service.logger.Debug("P-tag scraping successful", "url", url, "content_length", len(content.Content))
 				result.SuccessfulScrapes = append(result.SuccessfulScrapes, *content)
 				result.TotalSuccessful++
 			}
@@ -407,7 +565,7 @@ func (service *ScraperService) ScrapeMultipleURLs(ctx context.Context, req *Scra
 	result.Duration = time.Since(startTime)
 	successRate := float64(result.TotalSuccessful) / float64(result.TotalRequested) * 100
 
-	service.logger.LogService("scraper", "scrape_multiple_urls_enhanced", result.Duration, map[string]interface{}{
+	service.logger.LogService("scraper", "scrape_multiple_urls_ptag", result.Duration, map[string]interface{}{
 		"total_requested": result.TotalRequested,
 		"total_failed":    result.TotalFailed,
 		"total_success":   result.TotalSuccessful,
@@ -426,7 +584,7 @@ func (service *ScraperService) ScrapeNewsArticle(ctx context.Context, article *m
 		return article, fmt.Errorf("Article URL cannot be empty")
 	}
 
-	service.logger.Debug("Scraping news article with enhanced extraction", "url", article.URL, "title", article.Title)
+	service.logger.Debug("Scraping news article with P-tag extraction", "url", article.URL, "title", article.Title)
 
 	content, err := service.ScrapeURL(ctx, article.URL)
 	if err != nil {
@@ -437,7 +595,7 @@ func (service *ScraperService) ScrapeNewsArticle(ctx context.Context, article *m
 	if content != nil && content.Success {
 		if content.Content != "" {
 			article.Content = content.Content
-			service.logger.Debug("Updated article content with enhanced extraction", "url", article.URL, "length", len(content.Content))
+			service.logger.Debug("Updated article content with P-tag extraction", "url", article.URL, "length", len(content.Content))
 		}
 		if content.Author != "" && article.Author == "" {
 			article.Author = content.Author
@@ -449,431 +607,11 @@ func (service *ScraperService) ScrapeNewsArticle(ctx context.Context, article *m
 			article.ImageURL = content.ImageURL
 		}
 	} else {
-		service.logger.Debug("Enhanced scraping unsuccessful", "url", article.URL, "success", content != nil && content.Success)
+		service.logger.Debug("P-tag scraping unsuccessful", "url", article.URL, "success", content != nil && content.Success)
 	}
 
 	return article, nil
 }
-
-// ================ ENHANCED CONTENT EXTRACTION METHODS ================
-
-// extractArticleContent uses readability-inspired heuristics to extract main article content
-func (service *ScraperService) extractArticleContent(e *colly.HTMLElement) string {
-	// First, remove known noise elements before processing
-	service.removeNoiseElements(e)
-
-	// Try structured content containers first
-	content := service.extractFromStructuredContainers(e)
-
-	if content == "" {
-		// Fallback to heuristic-based extraction
-		content = service.extractUsingHeuristics(e)
-	}
-
-	if content == "" {
-		// Final fallback to paragraph extraction
-		content = service.extractFromParagraphs(e)
-	}
-
-	// Clean and validate the extracted content
-	content = service.cleanContent(content)
-
-	// Validate minimum content quality
-	if len(strings.TrimSpace(content)) < 100 {
-		service.logger.Debug("Extracted content too short, trying fallback", "length", len(content))
-		return service.extractFallbackContent(e)
-	}
-
-	// Limit maximum content length
-	if len(content) > 12000 {
-		content = content[:12000] + "..."
-	}
-
-	service.logger.Debug("Successfully extracted article content",
-		"length", len(content),
-		"preview", safeTruncate(content, 100))
-
-	return content
-}
-
-// removeNoiseElements removes common noise elements before content extraction
-func (service *ScraperService) removeNoiseElements(e *colly.HTMLElement) {
-	noiseSelectors := []string{
-		"script", "style", "noscript", "iframe",
-		"nav", "header", "footer", "aside",
-		".advertisement", ".ads", ".ad", ".banner",
-		".sidebar", ".social", ".share", ".comments",
-		".newsletter", ".subscribe", ".popup", ".modal",
-		".navigation", ".menu", ".related", ".recommended",
-		".author-bio", ".tags", ".categories",
-		"[id*='ad']", "[class*='ad']", "[id*='social']",
-		"[class*='share']", "[class*='comment']",
-	}
-
-	for _, selector := range noiseSelectors {
-		e.DOM.Find(selector).Remove()
-	}
-
-	service.logger.Debug("Removed noise elements from DOM")
-}
-
-// extractFromStructuredContainers tries to extract from semantic HTML containers
-func (service *ScraperService) extractFromStructuredContainers(e *colly.HTMLElement) string {
-	// Priority order for content containers
-	containerSelectors := []string{
-		"article",
-		"main",
-		"[role='main']",
-		".main-content",
-		".article-content",
-		".post-content",
-		".entry-content",
-		".content",
-		"#main",
-		"#content",
-	}
-
-	for _, selector := range containerSelectors {
-		if container := e.DOM.Find(selector).First(); container.Length() > 0 {
-			content := service.extractTextFromContainer(container)
-			if len(strings.TrimSpace(content)) > 200 {
-				service.logger.Debug("Extracted content from structured container",
-					"selector", selector, "length", len(content))
-				return content
-			}
-		}
-	}
-
-	return ""
-}
-
-// extractTextFromContainer extracts clean text from a specific container
-func (service *ScraperService) extractTextFromContainer(container *goquery.Selection) string {
-	var paragraphs []string
-
-	// Extract paragraphs with content filtering
-	container.Find("p").Each(func(i int, s *goquery.Selection) {
-		text := strings.TrimSpace(s.Text())
-
-		// Filter out short paragraphs and noise
-		if len(text) > 50 && !service.isNoiseText(text) {
-			paragraphs = append(paragraphs, text)
-		}
-	})
-
-	// If no good paragraphs, try other text elements
-	if len(paragraphs) == 0 {
-		container.Find("div, section, span").Each(func(i int, s *goquery.Selection) {
-			text := strings.TrimSpace(s.Text())
-
-			// Only include elements with substantial text and low link density
-			if len(text) > 100 && service.calculateLinkDensity(s) < 0.3 {
-				paragraphs = append(paragraphs, text)
-			}
-		})
-	}
-
-	return strings.Join(paragraphs, "\n\n")
-}
-
-// extractUsingHeuristics uses content scoring to find the main article
-func (service *ScraperService) extractUsingHeuristics(e *colly.HTMLElement) string {
-	var candidates []ScoredElement
-
-	// Score potential content containers
-	e.DOM.Find("div, section, article").Each(func(i int, s *goquery.Selection) {
-		text := strings.TrimSpace(s.Text())
-
-		if len(text) < 200 {
-			return // Skip short content
-		}
-
-		score := service.scoreElement(s, text)
-
-		if score > 50 { // Minimum threshold
-			candidates = append(candidates, ScoredElement{
-				Selection: s,
-				Score:     score,
-				Text:      text,
-			})
-		}
-	})
-
-	// Return the highest scored content
-	if len(candidates) > 0 {
-		// Sort by score descending
-		bestCandidate := candidates[0]
-		for _, candidate := range candidates[1:] {
-			if candidate.Score > bestCandidate.Score {
-				bestCandidate = candidate
-			}
-		}
-
-		service.logger.Debug("Selected content using heuristics",
-			"score", bestCandidate.Score, "length", len(bestCandidate.Text))
-
-		return bestCandidate.Text
-	}
-
-	return ""
-}
-
-// scoreElement scores an element based on content quality indicators
-func (service *ScraperService) scoreElement(s *goquery.Selection, text string) int {
-	score := 0
-
-	// Base score from text length
-	score += len(text) / 100
-
-	// Bonus for paragraph count
-	pCount := s.Find("p").Length()
-	score += pCount * 10
-
-	// Penalty for high link density
-	linkDensity := service.calculateLinkDensity(s)
-	if linkDensity > 0.5 {
-		score -= 50
-	} else if linkDensity < 0.1 {
-		score += 20
-	}
-
-	// Bonus for typical content class names
-	class := s.AttrOr("class", "")
-	id := s.AttrOr("id", "")
-
-	contentIndicators := []string{"content", "article", "post", "main", "body", "entry"}
-	for _, indicator := range contentIndicators {
-		if strings.Contains(class, indicator) || strings.Contains(id, indicator) {
-			score += 25
-			break
-		}
-	}
-
-	// Penalty for noise class names
-	noiseIndicators := []string{"sidebar", "nav", "menu", "ad", "comment", "footer", "header"}
-	for _, indicator := range noiseIndicators {
-		if strings.Contains(class, indicator) || strings.Contains(id, indicator) {
-			score -= 30
-			break
-		}
-	}
-
-	return score
-}
-
-// calculateLinkDensity calculates the ratio of link text to total text
-func (service *ScraperService) calculateLinkDensity(s *goquery.Selection) float64 {
-	totalText := len(strings.TrimSpace(s.Text()))
-	if totalText == 0 {
-		return 1.0
-	}
-
-	linkText := 0
-	s.Find("a").Each(func(i int, link *goquery.Selection) {
-		linkText += len(strings.TrimSpace(link.Text()))
-	})
-
-	return float64(linkText) / float64(totalText)
-}
-
-// extractFromParagraphs fallback method to extract from paragraphs
-func (service *ScraperService) extractFromParagraphs(e *colly.HTMLElement) string {
-	var paragraphs []string
-
-	e.DOM.Find("p").Each(func(i int, s *goquery.Selection) {
-		text := strings.TrimSpace(s.Text())
-
-		if len(text) > 80 && !service.isNoiseText(text) {
-			paragraphs = append(paragraphs, text)
-		}
-	})
-
-	return strings.Join(paragraphs, "\n\n")
-}
-
-// extractFallbackContent final fallback for difficult pages
-func (service *ScraperService) extractFallbackContent(e *colly.HTMLElement) string {
-	// Try to find any substantial text blocks
-	var textBlocks []string
-
-	e.DOM.Find("*").Each(func(i int, s *goquery.Selection) {
-		// Skip if it has child elements (not a leaf text node)
-		if s.Children().Length() > 2 {
-			return
-		}
-
-		text := strings.TrimSpace(s.Text())
-		if len(text) > 150 && !service.isNoiseText(text) {
-			textBlocks = append(textBlocks, text)
-		}
-	})
-
-	if len(textBlocks) > 0 {
-		return strings.Join(textBlocks[:min(3, len(textBlocks))], "\n\n")
-	}
-
-	return ""
-}
-
-// isNoiseText checks if text contains common noise patterns
-func (service *ScraperService) isNoiseText(text string) bool {
-	lowerText := strings.ToLower(text)
-
-	noisePatterns := []string{
-		"subscribe", "newsletter", "advertisement", "cookie",
-		"privacy policy", "terms of service", "follow us",
-		"share this", "related articles", "read more",
-		"click here", "sign up", "log in", "contact us",
-	}
-
-	for _, pattern := range noisePatterns {
-		if strings.Contains(lowerText, pattern) {
-			return true
-		}
-	}
-
-	// Check for excessive capitalization (likely headers/navigation)
-	upperCount := 0
-	for _, r := range text {
-		if r >= 'A' && r <= 'Z' {
-			upperCount++
-		}
-	}
-
-	if len(text) > 0 && float64(upperCount)/float64(len(text)) > 0.7 {
-		return true
-	}
-
-	return false
-}
-
-// ================ ENHANCED CONTENT CLEANING METHODS ================
-
-// cleanContent performs aggressive content cleaning
-func (service *ScraperService) cleanContent(content string) string {
-	if content == "" {
-		return content
-	}
-
-	// Step 1: Normalize whitespace
-	content = service.normalizeWhitespace(content)
-
-	// Step 2: Remove noise patterns
-	content = service.removeNoisePatterns(content)
-
-	// Step 3: Clean formatting
-	content = service.cleanFormatting(content)
-
-	// Step 4: Remove repeated content
-	content = service.removeRepeatedContent(content)
-
-	// Step 5: Final cleanup
-	content = strings.TrimSpace(content)
-
-	return content
-}
-
-// normalizeWhitespace fixes spacing issues
-func (service *ScraperService) normalizeWhitespace(content string) string {
-	// Replace multiple spaces with single space
-	re := regexp.MustCompile(`\s+`)
-	content = re.ReplaceAllString(content, " ")
-
-	// Fix paragraph spacing
-	re = regexp.MustCompile(`\n\s*\n`)
-	content = re.ReplaceAllString(content, "\n\n")
-
-	// Remove trailing/leading whitespace per line
-	lines := strings.Split(content, "\n")
-	for i, line := range lines {
-		lines[i] = strings.TrimSpace(line)
-	}
-
-	return strings.Join(lines, "\n")
-}
-
-// removeNoisePatterns removes common noise text
-func (service *ScraperService) removeNoisePatterns(content string) string {
-	// Comprehensive noise patterns
-	patterns := []string{
-		`(?i)\s*javascript:void\(0\)\s*`,
-		`(?i)\s*advertisement\s*`,
-		`(?i)\s*sponsored content\s*`,
-		`(?i)\s*subscribe to our newsletter\s*`,
-		`(?i)\s*follow us on social media\s*`,
-		`(?i)\s*share this article\s*`,
-		`(?i)\s*read more articles?\s*`,
-		`(?i)\s*click here for more\s*`,
-		`(?i)\s*contact us for\s*`,
-		`(?i)\s*privacy policy\s*`,
-		`(?i)\s*terms of service\s*`,
-		`(?i)\s*cookie policy\s*`,
-		`(?i)\s*all rights reserved\s*`,
-		`(?i)\s*copyright \d+\s*`,
-		`(?i)\s*powered by\s*`,
-		`(?i)\s*related articles?\s*`,
-		`(?i)\s*you might also like\s*`,
-		`(?i)\s*trending now\s*`,
-		`(?i)\s*most popular\s*`,
-		`(?i)\s*recommended for you\s*`,
-	}
-
-	for _, pattern := range patterns {
-		re := regexp.MustCompile(pattern)
-		content = re.ReplaceAllString(content, "")
-	}
-
-	return content
-}
-
-// cleanFormatting removes formatting artifacts
-func (service *ScraperService) cleanFormatting(content string) string {
-	// Remove excessive punctuation
-	re := regexp.MustCompile(`[.]{3,}`)
-	content = re.ReplaceAllString(content, "...")
-
-	// Remove excessive dashes
-	re = regexp.MustCompile(`[-]{3,}`)
-	content = re.ReplaceAllString(content, "---")
-
-	// Remove stray formatting characters
-	re = regexp.MustCompile(`[_*]{2,}`)
-	content = re.ReplaceAllString(content, "")
-
-	// Clean up quotes
-	content = strings.ReplaceAll(content, `"`, `\"`)
-	content = strings.ReplaceAll(content, `"`, `\"`)
-	content = strings.ReplaceAll(content, "'", "'")
-	content = strings.ReplaceAll(content, "'", "'")
-
-	return content
-}
-
-// removeRepeatedContent removes duplicate sentences/paragraphs
-func (service *ScraperService) removeRepeatedContent(content string) string {
-	paragraphs := strings.Split(content, "\n\n")
-	seen := make(map[string]bool)
-	var unique []string
-
-	for _, paragraph := range paragraphs {
-		paragraph = strings.TrimSpace(paragraph)
-		if paragraph == "" {
-			continue
-		}
-
-		// Create a normalized version for comparison
-		normalized := strings.ToLower(strings.TrimSpace(paragraph))
-
-		if !seen[normalized] && len(paragraph) > 20 {
-			seen[normalized] = true
-			unique = append(unique, paragraph)
-		}
-	}
-
-	return strings.Join(unique, "\n\n")
-}
-
-// ================ ORIGINAL EXTRACTION HELPERS ================
 
 func (service *ScraperService) extractTitle(e *colly.HTMLElement) string {
 	selectors := []string{
@@ -1062,30 +800,6 @@ func (service *ScraperService) cleanTags(tags []string) []string {
 	return cleaned
 }
 
-// ================ UTILITY METHODS ================
-
-func (service *ScraperService) calculateContentQuality(content *ScrapedContent) int {
-	score := 0
-
-	if content.Title != "" {
-		score += 20
-	}
-	if len(content.Content) > 500 {
-		score += 40
-	}
-	if content.Description != "" {
-		score += 20
-	}
-	if content.Author != "" {
-		score += 10
-	}
-	if !content.PublishedAt.IsZero() {
-		score += 10
-	}
-
-	return score
-}
-
 // setupCallbacks sets up enhanced request callbacks
 func (service *ScraperService) setupCallbacks() {
 	service.collector.OnRequest(func(r *colly.Request) {
@@ -1116,11 +830,11 @@ func (service *ScraperService) HealthCheck(ctx context.Context) error {
 
 	content, err := service.ScrapeURL(testCtx, testURL)
 	if err != nil {
-		return fmt.Errorf("enhanced health check scrape failed: %w", err)
+		return fmt.Errorf("P-tag health check scrape failed: %w", err)
 	}
 
 	if content == nil || !content.Success {
-		return fmt.Errorf("enhanced health check scrape was unsuccessful")
+		return fmt.Errorf("P-tag health check scrape was unsuccessful")
 	}
 	return nil
 }

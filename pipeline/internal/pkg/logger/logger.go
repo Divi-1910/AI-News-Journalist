@@ -1,7 +1,7 @@
 package logger
 
 import (
-	"anya-ai-pipeline/internal/config"
+	"Infiya-ai-pipeline/internal/config"
 	"fmt"
 	"github.com/sirupsen/logrus"
 	"gopkg.in/natefinch/lumberjack.v2"
@@ -183,7 +183,7 @@ func (l *Logger) SetLogLevel(level string) error {
 type DebugHook struct{}
 
 func (hook *DebugHook) Fire(entry *logrus.Entry) error {
-	entry.Data["service"] = "anya-ai-pipeline"
+	entry.Data["service"] = "Infiya-ai-pipeline"
 	entry.Data["version"] = "1.0.0"
 
 	if hostname, err := os.Hostname(); err == nil {

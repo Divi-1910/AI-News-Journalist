@@ -1,9 +1,9 @@
 package handlers
 
 import (
-	"anya-ai-pipeline/internal/models"
-	"anya-ai-pipeline/internal/pkg/logger"
-	"anya-ai-pipeline/internal/services"
+	"Infiya-ai-pipeline/internal/models"
+	"Infiya-ai-pipeline/internal/pkg/logger"
+	"Infiya-ai-pipeline/internal/services"
 	"context"
 	"github.com/gin-gonic/gin"
 	"net/http"

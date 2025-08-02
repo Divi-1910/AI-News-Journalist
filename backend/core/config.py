@@ -10,9 +10,9 @@ class Settings(BaseSettings):
     """Application settings and configuration"""
     
     # Basic App Info
-    APP_NAME: str = "Anya"
+    APP_NAME: str = "Infiya"
     APP_VERSION: str = "1.0.0"
-    APP_DESCRIPTION: str = "Backend API for Anya"
+    APP_DESCRIPTION: str = "Backend API for Infiya"
     
     # Environment
     ENVIRONMENT: str = "development"
@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     
     # Database Configuration
     MONGODB_URL: str = "mongodb://localhost:27017"
-    MONGODB_NAME: str = "Anya"
+    MONGODB_NAME: str = "Infiya"
     
     # Authentication Configuration
     GOOGLE_CLIENT_ID: str = "dummy_client_id"

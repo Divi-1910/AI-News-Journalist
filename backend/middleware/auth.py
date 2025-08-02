@@ -25,7 +25,7 @@ class AuthMiddleware:
     def verify_token(self, token: str) -> dict:
         """Verify and decode JWT token"""
         try:
-            payload = jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM] , audience="anya-frontend" , issuer=settings.APP_NAME)
+            payload = jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM] , audience="Infiya-frontend" , issuer=settings.APP_NAME)
             return payload
         except jwt.ExpiredSignatureError:
             raise HTTPException(

@@ -151,7 +151,7 @@ const Preferences = () => {
             Hi, {user?.profile.name || "there"}!
           </h1>
           <p className="text-lg ml-10 mt-1 text-gray-300 animate-fade-in-up">
-            Help Anya get to know you better
+            Help Infiya get to know you better
           </p>
         </div>
 
@@ -167,7 +167,7 @@ const Preferences = () => {
                 1
               </div>
               <h2 className="text-2xl font-bold text-white">
-                What kind of personality would you like Anya to have?
+                What kind of personality would you like Infiya to have?
               </h2>
             </div>
 
@@ -270,7 +270,7 @@ const Preferences = () => {
                 Saving...
               </span>
             ) : (
-              "Start Chatting with Anya"
+              "Start Chatting with Infiya"
             )}
           </button>
           {!selectedPersonality && (
@@ -281,8 +281,8 @@ const Preferences = () => {
           {selectedPersonality && favoriteTopics.length > 0 && (
             <div className="mt-3 animate-fade-in">
               <p className="text-sm text-purple-300 inline-flex items-center">
-                Great choices! <span className="mx-1">✨</span> Anya can't wait
-                to chat with you.
+                Great choices! <span className="mx-1">✨</span> Infiya can't
+                wait to chat with you.
               </p>
               <div className="mt-2 flex justify-center space-x-1">
                 {favoriteTopics.slice(0, 5).map((topic, i) => (

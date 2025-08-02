@@ -1,12 +1,12 @@
 package main
 
 import (
-	"anya-ai-pipeline/internal/config"
-	"anya-ai-pipeline/internal/handlers"
-	"anya-ai-pipeline/internal/middleware"
-	"anya-ai-pipeline/internal/pkg/logger"
-	"anya-ai-pipeline/internal/routes"
-	"anya-ai-pipeline/internal/services"
+	"Infiya-ai-pipeline/internal/config"
+	"Infiya-ai-pipeline/internal/handlers"
+	"Infiya-ai-pipeline/internal/middleware"
+	"Infiya-ai-pipeline/internal/pkg/logger"
+	"Infiya-ai-pipeline/internal/routes"
+	"Infiya-ai-pipeline/internal/services"
 	"context"
 	"errors"
 	"fmt"
@@ -19,7 +19,7 @@ import (
 )
 
 const (
-	serviceName    = "anya-ai-pipeline"
+	serviceName    = "Infiya-ai-pipeline"
 	serviceVersion = "1.0.0"
 )
 
@@ -36,7 +36,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	appLogger.Info("Starting Anya AI Pipeline",
+	appLogger.Info("Starting Infiya AI Pipeline",
 		"service", serviceName,
 		"version", serviceVersion,
 		"environment", config.Environment,
@@ -123,7 +123,7 @@ func main() {
 		appLogger.Info("Service cleanup completed")
 	}
 
-	appLogger.Info("Anya Manager AI Service shutdown complete",
+	appLogger.Info("Infiya Manager AI Service shutdown complete",
 		"service", serviceName,
 		"version", serviceVersion,
 	)
@@ -219,6 +219,9 @@ func initializeServices(config *config.Config, logger *logger.Logger) (*ServiceC
 		return nil, fmt.Errorf("failed to initialize News service: %w", err)
 	}
 
+	logger.Info("Initializing Youtube service")
+	youtubeService, err := services.NewYouTubeService(config.Youtube, logger)
+
 	logger.Info("Initializing Scraper service")
 	scraperService, err := services.NewScraperService(config.Scraper, logger)
 	if err != nil {
@@ -229,6 +232,7 @@ func initializeServices(config *config.Config, logger *logger.Logger) (*ServiceC
 	orchestrator := services.NewOrchestrator(
 		redisService,
 		geminiService,
+		youtubeService,
 		ollamaService,
 		chromaDBService,
 		newsService,

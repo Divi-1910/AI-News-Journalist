@@ -5,6 +5,24 @@ import (
 	"time"
 )
 
+type YouTubeVideo struct {
+	ID             string    `json:"id"`
+	Title          string    `json:"title"`
+	Description    string    `json:"description"`
+	ChannelID      string    `json:"channel_id"`
+	Channel        string    `json:"channel"`
+	ThumbnailURL   string    `json:"thumbnail_url"`
+	PublishedAt    time.Time `json:"published_at"`
+	URL            string    `json:"url"`
+	Tags           []string  `json:"tags"`
+	ViewCount      string    `json:"view_count,omitempty"`
+	LikeCount      string    `json:"like_count,omitempty"`
+	CommentCount   string    `json:"comment_count,omitempty"`
+	Duration       string    `json:"duration,omitempty"`
+	SourceType     string    `json:"source_type"`
+	RelevancyScore float64   `json:"relevancy_score,omitempty"`
+}
+
 type WorkflowRequest struct {
 	UserID          string            `json:"user_id" binding:"required"`
 	Query           string            `json:"query" binding:"required"`
@@ -25,19 +43,19 @@ type WorkflowResponse struct {
 
 type WorkflowContext struct {
 	// Workflow Identification
-	ID            string `json:"id"`
-	UserID        string `json:"user_id"`
-	SessionID     string `json:"session_id"`
-	RequestID     string `json:"request_id"`
-	OriginalQuery string `json:"original_query"`
-	EnhancedQuery string `json:"enhanced_query"`
-	// Workflow State
+	ID                   string              `json:"id"`
+	UserID               string              `json:"user_id"`
+	SessionID            string              `json:"session_id"`
+	RequestID            string              `json:"request_id"`
+	OriginalQuery        string              `json:"original_query"`
+	EnhancedQuery        string              `json:"enhanced_query"`
 	Status               WorkflowStatus      `json:"status"`
 	StartTime            time.Time           `json:"start_time"`
 	EndTime              *time.Time          `json:"end_time,omitempty"`
 	Intent               string              `json:"intent,omitempty"`
 	IntentConfidence     float64             `json:"intent_confidence,omitempty"`
 	Keywords             []string            `json:"keywords,omitempty"`
+	Videos               []YouTubeVideo      `json:"videos,omitempty"`
 	Articles             []NewsArticle       `json:"articles,omitempty"`
 	Summary              string              `json:"summary,omitempty"`
 	Response             string              `json:"response,omitempty"`
@@ -122,7 +140,11 @@ type ProcessingStats struct {
 	AgentStats          map[string]AgentStats    `json:"agent_stats"`
 	AgentExecutionTimes map[string]time.Duration `json:"agent_execution_times"`
 	ArticlesFound       int                      `json:"articles_found,omitempty"`
+	VideosFound         int                      `json:"videos_found,omitempty"`
 	ArticlesFiltered    int                      `json:"articles_filtered,omitempty"`
+	ArticlesSummarized  int                      `json:"articles_summarized"`
+	VideosSummarized    int                      `json:"videos_summarized"`
+	VideosFiltered      int                      `json:"videos_filtered,omitempty"`
 	APICallsCount       int                      `json:"api_calls_count,omitempty"`
 	TokensUsed          int                      `json:"tokens_used,omitempty"`
 	EmbeddingsCount     int                      `json:"embeddings_count,omitempty"`

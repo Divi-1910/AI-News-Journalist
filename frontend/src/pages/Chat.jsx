@@ -174,7 +174,7 @@ const useToast = () => {
 
 const useSound = () => {
   const [enabled, setEnabled] = useState(
-    () => localStorage.getItem("anya_sound") !== "false"
+    () => localStorage.getItem("Infiya_sound") !== "false"
   );
 
   const playSound = useCallback(
@@ -228,7 +228,7 @@ const useSound = () => {
   const toggleSound = useCallback(() => {
     const newEnabled = !enabled;
     setEnabled(newEnabled);
-    localStorage.setItem("anya_sound", newEnabled.toString());
+    localStorage.setItem("Infiya_sound", newEnabled.toString());
   }, [enabled]);
 
   return { enabled, playSound, toggleSound };
@@ -399,7 +399,7 @@ const EnhancedThinkingIndicator = ({ agentProgress, onExpand }) => {
               <div className="flex items-center gap-2">
                 <Sparkles className="w-5 h-5 text-purple-400 animate-pulse" />
                 <span className="text-white font-semibold">
-                  Anya is analyzing...
+                  Infiya is analyzing...
                 </span>
               </div>
             </div>
@@ -789,7 +789,7 @@ const Chat = () => {
 
   // Enhanced SSE connection with retry logic
   const setupSSEConnection = useCallback(() => {
-    const token = localStorage.getItem("anya_token");
+    const token = localStorage.getItem("Infiya_token");
     if (!token) {
       addToast("Authentication token missing", "error");
       navigate("/");
@@ -807,7 +807,7 @@ const Chat = () => {
       eventSource.onopen = () => {
         setIsConnected(true);
         setError(null);
-        addToast("Connected to Anya", "success", 2000);
+        addToast("Connected to Infiya", "success", 2000);
       };
 
       eventSource.onmessage = (event) => {
@@ -839,7 +839,7 @@ const Chat = () => {
       eventSourceRef.current = eventSource;
     } catch (error) {
       console.error("Failed to establish SSE connection:", error);
-      setError("Failed to connect to Anya's servers");
+      setError("Failed to connect to Infiya's servers");
       addToast("Connection failed. Retrying...", "error");
     }
   }, [navigate, addToast]);
@@ -921,7 +921,8 @@ const Chat = () => {
               type: "bot",
               content: data.final_response,
               timestamp: new Date().toISOString(),
-              agentAnalysis: pendingAnalysis?.agents || []
+              agentAnalysis: pendingAnalysis?.agents || [],
+              workflow_stats: data.workflow_stats || null
             };
             setMessages((prev) => [...prev, assistantMessage]);
             playSound("receive");
@@ -968,7 +969,10 @@ const Chat = () => {
     if (!content || isSending) return;
 
     if (!isConnected) {
-      addToast("Not connected to Anya. Please wait for reconnection.", "error");
+      addToast(
+        "Not connected to Infiya. Please wait for reconnection.",
+        "error"
+      );
       return;
     }
 
@@ -988,7 +992,7 @@ const Chat = () => {
 
     try {
       await ChatApi.sendMessage(content);
-      addToast("Message sent to Anya", "success", 1500);
+      addToast("Message sent to Infiya", "success", 1500);
     } catch (err) {
       console.error("Failed to send message:", err);
       const errorMessage = err.message || "Failed to send message";
@@ -1041,7 +1045,7 @@ const Chat = () => {
       try {
         if (navigator.share) {
           await navigator.share({
-            title: "Anya AI Response",
+            title: "Infiya AI Response",
             text: message.content,
             url: window.location.href
           });
@@ -1081,7 +1085,7 @@ const Chat = () => {
     const welcomeMessage = {
       id: "welcome",
       type: "bot",
-      content: `# Hiii I'm Anya !! 👋
+      content: `# Hiii I'm Infiya !! 👋
 
 I'm your personalized AI news anchor, powered by advanced multi-agent analysis technology.
 *Ready to get started? Ask me anything!* ✨`,
@@ -1114,7 +1118,7 @@ I'm your personalized AI news anchor, powered by advanced multi-agent analysis t
           </div>
           <div>
             <h2 className="text-2xl font-bold text-white mb-2">
-              Initializing Anya
+              Initializing Infiya
             </h2>
             <p className="text-purple-300 mb-4">
               Setting up your personalized AI news experience...
@@ -1162,7 +1166,7 @@ I'm your personalized AI news anchor, powered by advanced multi-agent analysis t
 
             <div>
               <h1 className="text-xl font-bold text-white tracking-tight">
-                Anya
+                Infiya
               </h1>
               <div className="flex items-center gap-2">
                 <p className="text-sm text-purple-300 font-medium">
@@ -1386,7 +1390,7 @@ I'm your personalized AI news anchor, powered by advanced multi-agent analysis t
                 value={inputValue}
                 onChange={(e) => setInputValue(e.target.value)}
                 onKeyPress={handleKeyPress}
-                placeholder="Ask Anya anything about current events..."
+                placeholder="Ask Infiya anything about current events..."
                 className="w-full bg-transparent text-white placeholder-gray-400 resize-none focus:outline-none max-h-40 custom-scrollbar text-base leading-relaxed py-3"
                 rows="1"
                 disabled={isSending || !isConnected}
@@ -1427,8 +1431,8 @@ I'm your personalized AI news anchor, powered by advanced multi-agent analysis t
           {/* Footer Info */}
           <div className="flex items-center justify-between mt-4">
             <p className="text-xs text-gray-500">
-              ✨ Anya uses advanced AI agents to analyze and summarize news for
-              you
+              ✨ Infiya uses advanced AI agents to analyze and summarize news
+              for you
             </p>
 
             <div className="flex items-center gap-4 text-xs text-gray-500">

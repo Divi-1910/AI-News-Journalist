@@ -1,9 +1,9 @@
 package services
 
 import (
-	"anya-ai-pipeline/internal/config"
-	"anya-ai-pipeline/internal/models"
-	"anya-ai-pipeline/internal/pkg/logger"
+	"Infiya-ai-pipeline/internal/config"
+	"Infiya-ai-pipeline/internal/models"
+	"Infiya-ai-pipeline/internal/pkg/logger"
 	"context"
 	"fmt"
 	"sync"
@@ -13,6 +13,7 @@ import (
 type Orchestrator struct {
 	redisService    *RedisService
 	geminiService   *GeminiService
+	youtubeService  *YouTubeService
 	ollamaService   *OllamaService
 	chromaDBService *ChromaDBService
 	newsService     *NewsService
@@ -30,7 +31,7 @@ type WorkflowExecutor struct {
 	logger       *logger.Logger
 }
 
-// Enhanced Intent Classification Result
+// IntentClassificationResult Enhanced Intent Classification Result
 type IntentClassificationResult struct {
 	Intent               string  `json:"intent"`
 	Confidence           float64 `json:"confidence"`
@@ -44,9 +45,10 @@ var (
 	newsWorkflowAgents = []string{
 		"memory",
 		"classifier",
-		"query_enhancer",    // Now sequential: enhancer first
-		"keyword_extractor", // then keyword extraction
+		"query_enhancer",
+		"keyword_extractor",
 		"news_fetch",
+		"youtube_video_fetch",
 		"embedding_generation",
 		"vector_storage",
 		"relevancy_agent",
@@ -64,13 +66,14 @@ var (
 	followUpWorkflowAgents = []string{
 		"memory",
 		"classifier",
-		"chitchat", // Uses enhanced chitchat for follow-ups
+		"chitchat",
 	}
 )
 
 func NewOrchestrator(
 	redisService *RedisService,
 	geminiService *GeminiService,
+	youtubeService *YouTubeService,
 	ollamaService *OllamaService,
 	chromaDBService *ChromaDBService,
 	newsService *NewsService,
@@ -81,6 +84,7 @@ func NewOrchestrator(
 	orchestrator := &Orchestrator{
 		redisService:    redisService,
 		geminiService:   geminiService,
+		youtubeService:  youtubeService,
 		ollamaService:   ollamaService,
 		chromaDBService: chromaDBService,
 		newsService:     newsService,
@@ -131,7 +135,7 @@ func (orchestrator *Orchestrator) ExecuteWorkflow(ctx context.Context, req *mode
 	case workflowCtx.Status == models.WorkflowStatusPending:
 		err = executor.executeConversationalPipeline(ctx)
 	default:
-		err = fmt.Errorf("Invalid Workflow Status: %s", workflowCtx.Status)
+		err = fmt.Errorf("invalid Workflow Status: %s", workflowCtx.Status)
 	}
 
 	duration := time.Since(startTime)
@@ -296,7 +300,9 @@ func (workflowExecutor *WorkflowExecutor) executeEnhancedIntentClassifier(ctx co
 			},
 		)
 		if fallbackErr != nil {
-			return nil, fmt.Errorf("both enhanced and fallback intent classification failed: %w", fallbackErr)
+			workflowExecutor.logger.WithError(fallbackErr).Warn("both enhanced and fallback intent classification failed: %w", fallbackErr)
+			intent = string(models.IntentChitChat)
+			confidence = 0.0
 		}
 
 		intentResult = &IntentClassificationResult{
@@ -368,7 +374,7 @@ func (workflowExecutor *WorkflowExecutor) executeNewsWorkflow(ctx context.Contex
 		return err
 	}
 
-	if err := workflowExecutor.fetchStoreAndSearchArticles(ctx); err != nil {
+	if err := workflowExecutor.fetchStoreAndSearchArticlesAndVideos(ctx); err != nil {
 		workflowExecutor.logger.WithError(err).Error("Failed to fetch store and search articles")
 		return err
 	}
@@ -719,24 +725,51 @@ func (workflowExecutor *WorkflowExecutor) ApplyPersonality(ctx context.Context) 
 func (workflowExecutor *WorkflowExecutor) generateSummary(ctx context.Context) error {
 	startTime := time.Now()
 
-	if err := workflowExecutor.publishAgentUpdate(ctx, "summarizer", models.AgentStatusProcessing, "Generating Comprehensive Summary"); err != nil {
+	if err := workflowExecutor.publishAgentUpdate(ctx, "summarizer", models.AgentStatusProcessing, "Generating Comprehensive Summary from Articles and Videos"); err != nil {
 		workflowExecutor.logger.WithError(err).Error("Failed to publish summarizer update")
 	}
 
+	// Prepare articles content
 	articlesContents := make([]string, len(workflowExecutor.workflowCtx.Articles))
 	for i, article := range workflowExecutor.workflowCtx.Articles {
-		content := fmt.Sprintf("Title: %s\nSource: %s\nDescription: %s", article.Title, article.Source, article.Description)
+		content := fmt.Sprintf("**ARTICLE**\nTitle: %s\nSource: %s\nDescription: %s", article.Title, article.Source, article.Description)
 		if article.Content != "" {
 			content += fmt.Sprintf("\nContent: %s", article.Content)
+		}
+		if !article.PublishedAt.IsZero() {
+			content += fmt.Sprintf("\nPublished: %s", article.PublishedAt.Format("2006-01-02"))
 		}
 		articlesContents[i] = content
 	}
 
+	// Prepare videos content
+	videosContents := make([]string, len(workflowExecutor.workflowCtx.Videos))
+	for i, video := range workflowExecutor.workflowCtx.Videos {
+		content := fmt.Sprintf("**VIDEO**\nTitle: %s\nChannel: %s\nDescription: %s", video.Title, video.Channel, video.Description)
+		if !video.PublishedAt.IsZero() {
+			content += fmt.Sprintf("\nPublished: %s", video.PublishedAt.Format("2006-01-02"))
+		}
+		if video.Duration != "" {
+			content += fmt.Sprintf("\nDuration: %s", video.Duration)
+		}
+		if video.ViewCount != "" {
+			content += fmt.Sprintf("\nViews: %s", video.ViewCount)
+		}
+		if video.URL != "" {
+			content += fmt.Sprintf("\nURL: %s", video.URL)
+		}
+		videosContents[i] = content
+	}
+
+	// Combine all content for summarization
+	allContents := make([]string, 0, len(articlesContents)+len(videosContents))
+	allContents = append(allContents, articlesContents...)
+	allContents = append(allContents, videosContents...)
+
 	// Use original query for summarization
 	originalQuery := workflowExecutor.workflowCtx.OriginalQuery
 
-	// Pass current date for temporal context
-	summary, err := workflowExecutor.orchestrator.geminiService.SummarizeContent(ctx, originalQuery, articlesContents)
+	summary, err := workflowExecutor.orchestrator.geminiService.SummarizeContent(ctx, originalQuery, allContents)
 	if err != nil {
 		return fmt.Errorf("summary generation failed: %w", err)
 	}
@@ -744,6 +777,10 @@ func (workflowExecutor *WorkflowExecutor) generateSummary(ctx context.Context) e
 	workflowExecutor.workflowCtx.Summary = summary
 	workflowExecutor.workflowCtx.ConversationContext.LastSummary = summary
 	workflowExecutor.workflowCtx.ProcessingStats.APICallsCount++
+
+	// Update processing stats to include both content types
+	workflowExecutor.workflowCtx.ProcessingStats.ArticlesSummarized = len(workflowExecutor.workflowCtx.Articles)
+	workflowExecutor.workflowCtx.ProcessingStats.VideosSummarized = len(workflowExecutor.workflowCtx.Videos)
 
 	duration := time.Since(startTime)
 	workflowExecutor.workflowCtx.UpdateAgentStats("summarizer", models.AgentStats{
@@ -754,8 +791,20 @@ func (workflowExecutor *WorkflowExecutor) generateSummary(ctx context.Context) e
 		EndTime:   time.Now(),
 	})
 
-	if err := workflowExecutor.publishAgentUpdate(ctx, "summarizer", models.AgentStatusCompleted,
-		fmt.Sprintf("Generated summary (%d chars)", len(summary))); err != nil {
+	// Create status message based on content processed
+	var statusMessage string
+	articleCount := len(workflowExecutor.workflowCtx.Articles)
+	videoCount := len(workflowExecutor.workflowCtx.Videos)
+
+	if videoCount > 0 {
+		statusMessage = fmt.Sprintf("Generated summary from %d articles and %d videos (%d chars)",
+			articleCount, videoCount, len(summary))
+	} else {
+		statusMessage = fmt.Sprintf("Generated summary from %d articles (%d chars)",
+			articleCount, len(summary))
+	}
+
+	if err := workflowExecutor.publishAgentUpdate(ctx, "summarizer", models.AgentStatusCompleted, statusMessage); err != nil {
 		workflowExecutor.logger.WithError(err).Error("Failed to publish summarizer completion")
 	}
 
@@ -888,38 +937,83 @@ func (workflowExecutor *WorkflowExecutor) enhanceArticlesWithFullContent(ctx con
 }
 
 // Updated: Use enhanced query for news fetching
-func (workflowExecutor *WorkflowExecutor) fetchFreshNewsArticles(ctx context.Context) error {
+func (workflowExecutor *WorkflowExecutor) fetchArticlesAndVideos(ctx context.Context) error {
 	startTime := time.Now()
 
-	if err := workflowExecutor.publishAgentUpdate(ctx, "news_fetch", models.AgentStatusProcessing, "Fetching Fresh News Articles"); err != nil {
+	if err := workflowExecutor.publishAgentUpdate(ctx, "news_fetch", models.AgentStatusProcessing, "Fetching Fresh News Articles and Videos"); err != nil {
 		workflowExecutor.logger.WithError(err).Error("Failed to publish news_fetch update")
 	}
 
 	var freshArticles []models.NewsArticle
-	var err error
+	var freshVideos []models.YouTubeVideo
+	var articleErr, videoErr error
 
-	if len(workflowExecutor.workflowCtx.Keywords) > 0 {
-		freshArticles, err = workflowExecutor.orchestrator.newsService.SearchByKeywords(ctx, workflowExecutor.workflowCtx.Keywords, 100)
-		if err != nil {
-			workflowExecutor.logger.WithError(err).Error("Keyword Search Failed, trying recent news")
+	// Use sync.WaitGroup for parallel execution
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	// Fetch Articles in goroutine
+	go func() {
+		defer wg.Done()
+
+		if len(workflowExecutor.workflowCtx.Keywords) > 0 {
+			freshArticles, articleErr = workflowExecutor.orchestrator.newsService.SearchByKeywords(ctx, workflowExecutor.workflowCtx.Keywords, 100)
+			if articleErr != nil {
+				workflowExecutor.logger.WithError(articleErr).Error("Keyword Search Failed, trying recent news")
+			}
 		}
+
+		if len(freshArticles) == 0 {
+			queryForNews := workflowExecutor.workflowCtx.EnhancedQuery
+			if queryForNews == "" {
+				queryForNews = workflowExecutor.workflowCtx.OriginalQuery
+			}
+
+			freshArticles, articleErr = workflowExecutor.orchestrator.newsService.SearchRecentNews(ctx, queryForNews, 48, 15)
+			if articleErr != nil {
+				workflowExecutor.logger.WithError(articleErr).Error("Recent News Search Failed")
+			}
+		}
+	}()
+
+	go func() {
+		defer wg.Done()
+		queryForVideos := workflowExecutor.workflowCtx.EnhancedQuery
+		if queryForVideos == "" {
+			queryForVideos = workflowExecutor.workflowCtx.OriginalQuery
+		}
+
+		if len(workflowExecutor.workflowCtx.Keywords) > 0 {
+			freshVideos, videoErr = workflowExecutor.orchestrator.youtubeService.SearchNewsVideos(ctx, workflowExecutor.workflowCtx.Keywords, 8)
+			if videoErr != nil {
+				workflowExecutor.logger.WithError(videoErr).Error("YouTube keyword search failed, trying query-based search")
+			}
+		}
+
+		if len(freshVideos) == 0 {
+			freshVideos, videoErr = workflowExecutor.orchestrator.youtubeService.SearchVideosByQuery(ctx, queryForVideos, 8)
+			if videoErr != nil {
+				workflowExecutor.logger.WithError(videoErr).Warn("YouTube search failed completely")
+				freshVideos = []models.YouTubeVideo{} // Empty but continue
+			}
+		}
+	}()
+
+	wg.Wait()
+
+	if articleErr != nil && len(freshArticles) == 0 {
+		return fmt.Errorf("News Search Failed: %w", articleErr)
 	}
 
-	if len(freshArticles) == 0 {
-		// Use enhanced query if available, otherwise original
-		queryForNews := workflowExecutor.workflowCtx.EnhancedQuery
-		if queryForNews == "" {
-			queryForNews = workflowExecutor.workflowCtx.OriginalQuery
-		}
-
-		freshArticles, err = workflowExecutor.orchestrator.newsService.SearchRecentNews(ctx, queryForNews, 48, 15)
-		if err != nil {
-			return fmt.Errorf("News Search Failed: %w", err)
-		}
-	}
-
+	workflowExecutor.workflowCtx.Articles = freshArticles
+	workflowExecutor.workflowCtx.Videos = freshVideos
 	workflowExecutor.workflowCtx.Metadata["fresh_articles"] = freshArticles
+	workflowExecutor.workflowCtx.Metadata["fresh_videos"] = freshVideos
+	workflowExecutor.workflowCtx.Metadata["articles_count"] = len(freshArticles)
+	workflowExecutor.workflowCtx.Metadata["videos_count"] = len(freshVideos)
+
 	workflowExecutor.workflowCtx.ProcessingStats.ArticlesFound = len(freshArticles)
+	workflowExecutor.workflowCtx.ProcessingStats.VideosFound = len(freshVideos)
 
 	duration := time.Since(startTime)
 	workflowExecutor.workflowCtx.UpdateAgentStats("news_fetch", models.AgentStats{
@@ -930,8 +1024,12 @@ func (workflowExecutor *WorkflowExecutor) fetchFreshNewsArticles(ctx context.Con
 		EndTime:   time.Now(),
 	})
 
-	if err := workflowExecutor.publishAgentUpdate(ctx, "news_fetch", models.AgentStatusCompleted,
-		fmt.Sprintf("Fetched %d Fresh Articles", len(freshArticles))); err != nil {
+	if videoErr != nil {
+		workflowExecutor.logger.WithError(videoErr).Warn("YouTube video fetch had issues, continuing with articles only")
+	}
+
+	statusMessage := fmt.Sprintf("Fetched %d Fresh Articles and %d Videos", len(freshArticles), len(freshVideos))
+	if err := workflowExecutor.publishAgentUpdate(ctx, "news_fetch", models.AgentStatusCompleted, statusMessage); err != nil {
 		workflowExecutor.logger.WithError(err).Error("Failed to publish news_fetch completion update")
 	}
 
@@ -939,43 +1037,69 @@ func (workflowExecutor *WorkflowExecutor) fetchFreshNewsArticles(ctx context.Con
 }
 
 // Updated: Generate embeddings using enhanced query
-func (workflowExecutor *WorkflowExecutor) generateNewsEmbeddings(ctx context.Context) error {
+func (workflowExecutor *WorkflowExecutor) generateNewsAndVideoEmbeddings(ctx context.Context) error {
 	startTime := time.Now()
 
-	err := workflowExecutor.publishAgentUpdate(ctx, "embedding_generation", models.AgentStatusProcessing, "Generating News Embeddings for Fresh News Articles")
+	err := workflowExecutor.publishAgentUpdate(ctx, "embedding_generation", models.AgentStatusProcessing, "Generating Embeddings for Articles and Videos")
 	if err != nil {
 		workflowExecutor.logger.WithError(err).Error("Failed to publish embedding generation update")
 	}
 
+	// Get fresh articles
 	freshArticles, ok := workflowExecutor.workflowCtx.Metadata["fresh_articles"].([]models.NewsArticle)
 	if !ok || len(freshArticles) == 0 {
-		return fmt.Errorf("No new fresh articles found for embedding generation")
+		return fmt.Errorf("No fresh articles found for embedding generation")
 	}
 
-	// Use enhanced query for embedding if available
+	// Get fresh videos
+	freshVideos, ok := workflowExecutor.workflowCtx.Metadata["fresh_videos"].([]models.YouTubeVideo)
+	if !ok {
+		freshVideos = []models.YouTubeVideo{} // Continue with empty videos if none found
+	}
+
+	// Use enhanced query for embedding
 	queryForEmbedding := workflowExecutor.workflowCtx.EnhancedQuery
 	if queryForEmbedding == "" {
 		queryForEmbedding = workflowExecutor.workflowCtx.OriginalQuery
 	}
 
-	queryEmbedding, err := workflowExecutor.orchestrator.ollamaService.GenerateEmbedding(ctx, queryForEmbedding)
+	// Generate query embedding
+	queryEmbedding, err := workflowExecutor.orchestrator.ollamaService.GenerateQueryEmbedding(ctx, queryForEmbedding)
 	if err != nil {
 		return fmt.Errorf("Failed to generate user query embedding: %w", err)
 	}
 
+	// Generate article embeddings
 	articleTexts := make([]string, len(freshArticles))
 	for i, article := range freshArticles {
 		articleTexts[i] = fmt.Sprintf("%s - %s", article.Title, article.Description)
 	}
 
-	articleEmbeddings, err := workflowExecutor.orchestrator.ollamaService.BatchGenerateEmbeddings(ctx, articleTexts)
+	articleEmbeddings, err := workflowExecutor.orchestrator.ollamaService.BatchGenerateNewsEmbeddings(ctx, articleTexts)
 	if err != nil {
 		return fmt.Errorf("article embeddings generation failed: %w", err)
 	}
 
+	// Generate video embeddings
+	var videoEmbeddings [][]float64
+	if len(freshVideos) > 0 {
+		videoTexts := make([]string, len(freshVideos))
+		for i, video := range freshVideos {
+			videoTexts[i] = fmt.Sprintf("%s - %s", video.Title, video.Description)
+		}
+
+		videoEmbeddings, err = workflowExecutor.orchestrator.ollamaService.BatchGenerateVideoEmbeddings(ctx, videoTexts)
+		if err != nil {
+			workflowExecutor.logger.WithError(err).Warn("Video embeddings generation failed, continuing without videos")
+			videoEmbeddings = [][]float64{}
+		}
+	}
+
+	// Store in workflow context
 	workflowExecutor.workflowCtx.Metadata["query_embeddings"] = queryEmbedding
 	workflowExecutor.workflowCtx.Metadata["fresh_article_embeddings"] = articleEmbeddings
-	workflowExecutor.workflowCtx.ProcessingStats.EmbeddingsCount = len(articleEmbeddings) + 1
+	workflowExecutor.workflowCtx.Metadata["fresh_video_embeddings"] = videoEmbeddings
+	workflowExecutor.workflowCtx.ProcessingStats.EmbeddingsCount = len(articleEmbeddings) + len(videoEmbeddings) + 1
 
 	duration := time.Since(startTime)
 	workflowExecutor.workflowCtx.UpdateAgentStats("embedding_generation", models.AgentStats{
@@ -986,16 +1110,13 @@ func (workflowExecutor *WorkflowExecutor) generateNewsEmbeddings(ctx context.Con
 		EndTime:   time.Now(),
 	})
 
-	if err := workflowExecutor.publishAgentUpdate(ctx, "embedding_generation", models.AgentStatusCompleted,
-		fmt.Sprintf("Generated Embeddings for %d articles", len(articleEmbeddings))); err != nil {
+	statusMessage := fmt.Sprintf("Generated Embeddings for %d articles and %d videos", len(articleEmbeddings), len(videoEmbeddings))
+	if err := workflowExecutor.publishAgentUpdate(ctx, "embedding_generation", models.AgentStatusCompleted, statusMessage); err != nil {
 		workflowExecutor.logger.WithError(err).Error("Failed to publish embedding generation completion update")
 	}
 
 	return nil
 }
-
-// Keep the rest of the methods as they are, but remove the old parallel processing method
-// and add a compatibility alias for the old method name
 
 func (workflowExecutor *WorkflowExecutor) KeywordExtractionAndQueryEnhancement(ctx context.Context) error {
 	workflowExecutor.logger.Warn("KeywordExtractionAndQueryEnhancement is deprecated, use executeSequentialQueryProcessing instead")
@@ -1014,30 +1135,76 @@ func (workflowExecutor *WorkflowExecutor) enhanceQuery(ctx context.Context) erro
 	return workflowExecutor.enhanceQueryWithContext(ctx, workflowExecutor.workflowCtx.OriginalQuery)
 }
 
-func (workflowExecutor *WorkflowExecutor) storeFreshNewsArticles(ctx context.Context) error {
+func (workflowExecutor *WorkflowExecutor) storeFreshArticlesAndVideos(ctx context.Context) error {
 	startTime := time.Now()
 	if err := workflowExecutor.publishAgentUpdate(ctx, "vector_storage",
-		models.AgentStatusProcessing, "Storing fresh articles in chromadb"); err != nil {
+		models.AgentStatusProcessing, "Storing fresh articles and videos in chromadb"); err != nil {
 		workflowExecutor.logger.WithError(err).Error("Failed to publish vector storage update")
 	}
 
+	// Get fresh articles and their embeddings
 	freshArticles, ok := workflowExecutor.workflowCtx.Metadata["fresh_articles"].([]models.NewsArticle)
 	if !ok {
-		return fmt.Errorf("No new fresh articles found for storage in chromadb")
+		return fmt.Errorf("No fresh articles found for storage in chromadb")
 	}
 
-	freshEmbeddings, ok := workflowExecutor.workflowCtx.Metadata["fresh_article_embeddings"].([][]float64)
+	freshArticleEmbeddings, ok := workflowExecutor.workflowCtx.Metadata["fresh_article_embeddings"].([][]float64)
 	if !ok {
-		return fmt.Errorf("No new fresh embeddings found for storage in chromadb")
+		return fmt.Errorf("No fresh article embeddings found for storage in chromadb")
 	}
 
-	err := workflowExecutor.orchestrator.chromaDBService.StoreArticles(ctx, freshArticles, freshEmbeddings)
-	if err != nil {
-		return fmt.Errorf("Failed to store fresh articles in ChromaDB: %w", err)
+	// Get fresh videos and their embeddings (optional - continue if not available)
+	freshVideos, videosExist := workflowExecutor.workflowCtx.Metadata["fresh_videos"].([]models.YouTubeVideo)
+	if !videosExist {
+		freshVideos = []models.YouTubeVideo{}
 	}
 
-	workflowExecutor.workflowCtx.Metadata["fresh_article_embeddings"] = len(freshArticles)
-	delete(workflowExecutor.workflowCtx.Metadata, "query_embeddings")
+	freshVideoEmbeddings, videoEmbeddingsExist := workflowExecutor.workflowCtx.Metadata["fresh_video_embeddings"].([][]float64)
+	if !videoEmbeddingsExist {
+		freshVideoEmbeddings = [][]float64{}
+	}
+
+	var articlesStored, videosStored int
+	var wg sync.WaitGroup
+	var articleErr, videoErr error
+
+	// Store articles in parallel
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		if len(freshArticles) > 0 && len(freshArticleEmbeddings) > 0 {
+			articleErr = workflowExecutor.orchestrator.chromaDBService.StoreArticles(ctx, freshArticles, freshArticleEmbeddings)
+			if articleErr == nil {
+				articlesStored = len(freshArticles)
+			}
+		}
+	}()
+
+	if len(freshVideos) > 0 && len(freshVideoEmbeddings) > 0 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			videoErr = workflowExecutor.orchestrator.chromaDBService.StoreVideos(ctx, freshVideos, freshVideoEmbeddings)
+			if videoErr == nil {
+				videosStored = len(freshVideos)
+			}
+		}()
+	}
+
+	wg.Wait()
+
+	// Handle errors
+	if articleErr != nil {
+		return fmt.Errorf("Failed to store fresh articles in ChromaDB: %w", articleErr)
+	}
+
+	if videoErr != nil {
+		workflowExecutor.logger.WithError(videoErr).Warn("Failed to store fresh videos in ChromaDB, continuing with articles only")
+	}
+
+	// Update metadata with storage counts
+	workflowExecutor.workflowCtx.Metadata["stored_articles_count"] = articlesStored
+	workflowExecutor.workflowCtx.Metadata["stored_videos_count"] = videosStored
 
 	duration := time.Since(startTime)
 	workflowExecutor.workflowCtx.UpdateAgentStats("vector_storage", models.AgentStats{
@@ -1048,9 +1215,16 @@ func (workflowExecutor *WorkflowExecutor) storeFreshNewsArticles(ctx context.Con
 		EndTime:   time.Now(),
 	})
 
-	err = workflowExecutor.publishAgentUpdate(ctx, "vector_storage",
-		models.AgentStatusCompleted,
-		fmt.Sprintf("Stored %d articles in chromadb", len(freshArticles)))
+	// Create status message based on what was stored
+	var statusMessage string
+	if videosStored > 0 {
+		statusMessage = fmt.Sprintf("Stored %d articles and %d videos in chromadb", articlesStored, videosStored)
+	} else {
+		statusMessage = fmt.Sprintf("Stored %d articles in chromadb", articlesStored)
+	}
+
+	err := workflowExecutor.publishAgentUpdate(ctx, "vector_storage",
+		models.AgentStatusCompleted, statusMessage)
 	if err != nil {
 		workflowExecutor.logger.WithError(err).Error("Failed to publish vector storage completion update")
 	}
@@ -1058,11 +1232,11 @@ func (workflowExecutor *WorkflowExecutor) storeFreshNewsArticles(ctx context.Con
 	return nil
 }
 
-func (workflowExecutor *WorkflowExecutor) getRelevantArticles(ctx context.Context) error {
+func (workflowExecutor *WorkflowExecutor) getRelevantArticlesAndVideos(ctx context.Context) error {
 	startTime := time.Now()
 
 	if err := workflowExecutor.publishAgentUpdate(ctx, "relevancy_agent",
-		models.AgentStatusProcessing, "Searching All Articles for best semantic matches"); err != nil {
+		models.AgentStatusProcessing, "Searching articles and videos for best semantic matches"); err != nil {
 		workflowExecutor.logger.WithError(err).Error("Failed to publish semantic search update")
 	}
 
@@ -1071,14 +1245,46 @@ func (workflowExecutor *WorkflowExecutor) getRelevantArticles(ctx context.Contex
 		return fmt.Errorf("Query Embedding not found in metadata")
 	}
 
-	searchResults, err := workflowExecutor.orchestrator.chromaDBService.SearchSimilarArticles(ctx, queryEmbedding, 20, nil)
-	if err != nil {
-		return fmt.Errorf("ChromaDB Semantic Search Failed: %w", err)
+	var wg sync.WaitGroup
+	var articleSearchResults []SearchResult
+	var videoSearchResults []VideoSearchResult
+	var articleSearchErr, videoSearchErr error
+
+	wg.Add(2)
+
+	go func() {
+		defer wg.Done()
+		articleSearchResults, articleSearchErr = workflowExecutor.orchestrator.chromaDBService.SearchSimilarArticles(ctx, queryEmbedding, 20, nil)
+	}()
+
+	// Search videos
+	go func() {
+		defer wg.Done()
+		videoSearchResults, videoSearchErr = workflowExecutor.orchestrator.chromaDBService.SearchSimilarVideos(ctx, queryEmbedding, 10, nil)
+		if videoSearchErr != nil {
+			// Log warning but don't fail the entire operation
+			workflowExecutor.logger.WithError(videoSearchErr).Warn("Video semantic search failed, continuing with articles only")
+			videoSearchResults = []VideoSearchResult{}
+			videoSearchErr = nil // Reset error so we don't fail the workflow
+		}
+	}()
+
+	wg.Wait()
+
+	if articleSearchErr != nil {
+		return fmt.Errorf("ChromaDB Article Semantic Search Failed: %w", articleSearchErr)
 	}
 
+	// Extract articles from search results
 	var semanticallySimilarArticles []models.NewsArticle
-	for _, searchResult := range searchResults {
+	for _, searchResult := range articleSearchResults {
 		semanticallySimilarArticles = append(semanticallySimilarArticles, searchResult.Document)
+	}
+
+	// Extract videos from search results
+	var semanticallySimilarVideos []models.YouTubeVideo
+	for _, searchResult := range videoSearchResults {
+		semanticallySimilarVideos = append(semanticallySimilarVideos, searchResult.VideoDocument)
 	}
 
 	// Use enhanced query for relevance evaluation
@@ -1094,15 +1300,55 @@ func (workflowExecutor *WorkflowExecutor) getRelevantArticles(ctx context.Contex
 	}
 
 	var relevantArticles []models.NewsArticle
-	freshArticles, _ := workflowExecutor.workflowCtx.Metadata["fresh_articles"].([]models.NewsArticle)
-	moreArticles, err := workflowExecutor.orchestrator.geminiService.GetRelevantArticles(ctx, freshArticles, contextMap)
-	if err == nil {
-		relevantArticles = append(relevantArticles, moreArticles...)
+	var relevantVideos []models.YouTubeVideo
+
+	wg.Add(2)
+	var Err error
+
+	go func() {
+		defer wg.Done()
+		freshArticles, _ := workflowExecutor.workflowCtx.Metadata["fresh_articles"].([]models.NewsArticle)
+
+		moreArticles, err := workflowExecutor.orchestrator.geminiService.GetRelevantArticles(ctx, freshArticles, contextMap)
+		if err == nil {
+			relevantArticles = append(relevantArticles, moreArticles...)
+		} else {
+			Err = err
+		}
+	}()
+
+	// Process videos for relevance
+	go func() {
+		defer wg.Done()
+		freshVideos, _ := workflowExecutor.workflowCtx.Metadata["fresh_videos"].([]models.YouTubeVideo)
+
+		if len(freshVideos) > 0 {
+			moreVideos, err := workflowExecutor.orchestrator.geminiService.GetRelevantVideos(ctx, freshVideos, contextMap)
+			if err == nil {
+				relevantVideos = append(relevantVideos, moreVideos...)
+			} else {
+				workflowExecutor.logger.WithError(err).Warn("Video relevance evaluation failed, continuing with available videos")
+			}
+		}
+	}()
+
+	wg.Wait()
+
+	if Err != nil {
+		workflowExecutor.logger.WithError(Err).Warn("Article relevance evaluation failed, using semantic search results")
+		relevantArticles = semanticallySimilarArticles
 	}
 
+	// Store results in workflow context
 	workflowExecutor.workflowCtx.Articles = relevantArticles
+	workflowExecutor.workflowCtx.Videos = relevantVideos
+	workflowExecutor.workflowCtx.Metadata["relevant_articles"] = relevantArticles
+	workflowExecutor.workflowCtx.Metadata["relevant_videos"] = relevantVideos
+
+	// Update processing stats
 	workflowExecutor.workflowCtx.ProcessingStats.APICallsCount++
 	workflowExecutor.workflowCtx.ProcessingStats.ArticlesFiltered = len(relevantArticles)
+	workflowExecutor.workflowCtx.ProcessingStats.VideosFiltered = len(relevantVideos)
 
 	duration := time.Since(startTime)
 	workflowExecutor.workflowCtx.UpdateAgentStats("relevancy_agent", models.AgentStats{
@@ -1113,8 +1359,15 @@ func (workflowExecutor *WorkflowExecutor) getRelevantArticles(ctx context.Contex
 		EndTime:   time.Now(),
 	})
 
-	if err := workflowExecutor.publishAgentUpdate(ctx, "relevancy_agent", models.AgentStatusCompleted,
-		fmt.Sprintf("Selected %d relevant articles from semantic search", len(relevantArticles))); err != nil {
+	// Create completion message based on what was processed
+	var statusMessage string
+	if len(relevantVideos) > 0 {
+		statusMessage = fmt.Sprintf("Selected %d relevant articles and %d relevant videos from semantic search", len(relevantArticles), len(relevantVideos))
+	} else {
+		statusMessage = fmt.Sprintf("Selected %d relevant articles from semantic search", len(relevantArticles))
+	}
+
+	if err := workflowExecutor.publishAgentUpdate(ctx, "relevancy_agent", models.AgentStatusCompleted, statusMessage); err != nil {
 		workflowExecutor.logger.WithError(err).Error("Failed to publish relevancy agent completion update")
 	}
 
@@ -1146,20 +1399,20 @@ func (workflowExecutor *WorkflowExecutor) fallbackToFreshArticles(ctx context.Co
 	workflowExecutor.logger.Warn("Using fallback articles due to vector search failure", "article_count", len(fallbackArticles))
 }
 
-func (workflowExecutor *WorkflowExecutor) fetchStoreAndSearchArticles(ctx context.Context) error {
-	if err := workflowExecutor.fetchFreshNewsArticles(ctx); err != nil {
+func (workflowExecutor *WorkflowExecutor) fetchStoreAndSearchArticlesAndVideos(ctx context.Context) error {
+	if err := workflowExecutor.fetchArticlesAndVideos(ctx); err != nil {
 		return fmt.Errorf("Fetching Fresh News Articles failed: %w", err)
 	}
 
-	if err := workflowExecutor.generateNewsEmbeddings(ctx); err != nil {
+	if err := workflowExecutor.generateNewsAndVideoEmbeddings(ctx); err != nil {
 		return fmt.Errorf("Generate Fresh News Embeddings failed: %w", err)
 	}
 
-	if err := workflowExecutor.storeFreshNewsArticles(ctx); err != nil {
+	if err := workflowExecutor.storeFreshArticlesAndVideos(ctx); err != nil {
 		workflowExecutor.logger.WithError(err).Warn("Failed to store Fresh News Articles, proceeding without it")
 	}
 
-	if err := workflowExecutor.getRelevantArticles(ctx); err != nil {
+	if err := workflowExecutor.getRelevantArticlesAndVideos(ctx); err != nil {
 		workflowExecutor.logger.WithError(err).Warn("Vector Search On ChromaDB failed, using fresh Articles only")
 		workflowExecutor.fallbackToFreshArticles(ctx)
 	}

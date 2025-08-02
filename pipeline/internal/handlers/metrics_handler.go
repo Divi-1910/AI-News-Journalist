@@ -1,9 +1,9 @@
 package handlers
 
 import (
-	"anya-ai-pipeline/internal/models"
-	"anya-ai-pipeline/internal/pkg/logger"
-	"anya-ai-pipeline/internal/services"
+	"Infiya-ai-pipeline/internal/models"
+	"Infiya-ai-pipeline/internal/pkg/logger"
+	"Infiya-ai-pipeline/internal/services"
 	"net/http"
 	"runtime"
 	"time"
@@ -35,7 +35,7 @@ func (h *MetricsHandler) GetMetrics(c *gin.Context) {
 	activeWorkflows := h.orchestrator.GetActiveWorkflowsCount()
 
 	response := models.MetricsResponse{
-		Service:         "anya-manager",
+		Service:         "Infiya-manager",
 		Timestamp:       time.Now(),
 		Orchestrator:    orchestratorStats,
 		ActiveWorkflows: activeWorkflows,

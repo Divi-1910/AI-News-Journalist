@@ -1,9 +1,9 @@
 package handlers
 
 import (
-	"anya-ai-pipeline/internal/models"
-	"anya-ai-pipeline/internal/pkg/logger"
-	"anya-ai-pipeline/internal/services"
+	"Infiya-ai-pipeline/internal/models"
+	"Infiya-ai-pipeline/internal/pkg/logger"
+	"Infiya-ai-pipeline/internal/services"
 	"context"
 	"fmt"
 	"github.com/gin-gonic/gin"
@@ -55,7 +55,7 @@ func (workflowHandler *WorkflowHandler) ExecuteWorkflow(ctx *gin.Context) {
 	if workflowID == "" {
 		workflowID = models.GenerateWorkflowID()
 	}
-	
+
 	workflowHandler.logger.Info("Using workflow ID", "provided_id", req.WorkflowID, "final_id", workflowID)
 
 	worflowRequest := &models.WorkflowRequest{

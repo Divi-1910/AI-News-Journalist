@@ -29,7 +29,7 @@ const Home = () => {
   const [showLoginButton, setShowLoginButton] = useAtom(showLoginButtonAtom);
   const [apiBaseUrl] = useAtom(apiBaseUrlAtom);
 
-  // Anya's personality introductions
+  // Infiya's personality introductions
   const personalities = [
     {
       id: "calm_anchor",
@@ -175,7 +175,7 @@ const Home = () => {
                 <span
                   className={`bg-gradient-to-r ${currentPersonalityData.color} bg-clip-text text-transparent`}
                 >
-                  Anya
+                  Infiya
                 </span>
               </h2>
               <h3 className="text-lg font-medium text-gray-300">
@@ -284,7 +284,9 @@ const Home = () => {
 
           {/* Sample Questions */}
           <div className="mt-12 text-center">
-            <p className="text-gray-400 text-sm mb-3">Try asking Anya about:</p>
+            <p className="text-gray-400 text-sm mb-3">
+              Try asking Infiya about:
+            </p>
             <div className="flex flex-wrap justify-center gap-2">
               {[
                 "Current Affairs",

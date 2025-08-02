@@ -11,15 +11,15 @@ const apiClient = axios.create({
 });
 
 const getAuthToken = () => {
-  return localStorage.getItem("anya_token");
+  return localStorage.getItem("Infiya_token");
 };
 
 const setAuthToken = (token) => {
-  localStorage.setItem("anya_token", token);
+  localStorage.setItem("Infiya_token", token);
 };
 
 const removeAuthToken = () => {
-  localStorage.removeItem("anya_token");
+  localStorage.removeItem("Infiya_token");
 };
 
 apiClient.interceptors.request.use(
@@ -121,7 +121,7 @@ export const AuthApi = {
       if (response.data.success && response.data.token) {
         setAuthToken(response.data.token);
         localStorage.setItem(
-          "anya_user_info",
+          "Infiya_user_info",
           JSON.stringify(response.data.user)
         );
       }

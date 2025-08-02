@@ -1,7 +1,7 @@
 package middleware
 
 import (
-	"anya-ai-pipeline/internal/pkg/logger"
+	"Infiya-ai-pipeline/internal/pkg/logger"
 	"bytes"
 	"io"
 	"time"

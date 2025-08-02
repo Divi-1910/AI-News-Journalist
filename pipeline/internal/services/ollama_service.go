@@ -1,9 +1,9 @@
 package services
 
 import (
-	"anya-ai-pipeline/internal/config"
-	"anya-ai-pipeline/internal/models"
-	"anya-ai-pipeline/internal/pkg/logger"
+	"Infiya-ai-pipeline/internal/config"
+	"Infiya-ai-pipeline/internal/models"
+	"Infiya-ai-pipeline/internal/pkg/logger"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -80,10 +80,6 @@ func NewOllamaService(config config.OllamaConfig, log *logger.Logger) (*OllamaSe
 		semaphore: make(chan struct{}, 5),
 	}
 
-	// if err := service.testConnection(); err != nil {
-	// 	return nil, fmt.Errorf("Ollama connection test failed: %w", err)
-	// }
-
 	log.Info("Ollama service initialized successfully",
 		"base_url", config.BaseURL,
 		"embedding_model", config.EmbeddingModel,
@@ -91,7 +87,6 @@ func NewOllamaService(config config.OllamaConfig, log *logger.Logger) (*OllamaSe
 	)
 
 	return service, nil
-
 }
 
 func (service *OllamaService) testConnection() error {
@@ -116,13 +111,13 @@ func (service *OllamaService) testConnection() error {
 	return nil
 }
 
-func (service *OllamaService) GenerateEmbedding(ctx context.Context, text string) ([]float64, error) {
+func (service *OllamaService) GenerateQueryEmbedding(ctx context.Context, text string) ([]float64, error) {
 	if text == "" {
 		return nil, fmt.Errorf("text cannot be empty")
 	}
 	startTime := time.Now()
 
-	service.logger.LogService("ollama", "generate_embedding", 0, map[string]interface{}{
+	service.logger.LogService("ollama", "generate_query_embedding", 0, map[string]interface{}{
 		"text_length": len(text),
 		"model":       service.config.EmbeddingModel,
 	}, nil)
@@ -149,19 +144,19 @@ func (service *OllamaService) GenerateEmbedding(ctx context.Context, text string
 				"max_retries":   service.config.MaxRetries,
 				"backoff_delay": backoffDelay,
 				"error":         err.Error(),
-			}).Warn("Embedding request failed, retrying")
+			}).Warn("Query embedding request failed, retrying")
 
 			select {
 			case <-time.After(backoffDelay):
 				// Continue to next attempt
 			case <-ctx.Done():
-				return nil, models.NewTimeoutError("EMBEDDING_TIMEOUT", "Embedding generation timed out").WithCause(ctx.Err())
+				return nil, models.NewTimeoutError("EMBEDDING_TIMEOUT", "Query embedding generation timed out").WithCause(ctx.Err())
 			}
 		}
 	}
 
 	if err != nil {
-		service.logger.LogService("ollama", "generate_embedding", time.Since(startTime), map[string]interface{}{
+		service.logger.LogService("ollama", "generate_query_embedding", time.Since(startTime), map[string]interface{}{
 			"text_length": len(text),
 			"attempts":    service.config.MaxRetries,
 		}, err)
@@ -169,14 +164,138 @@ func (service *OllamaService) GenerateEmbedding(ctx context.Context, text string
 	}
 
 	duration := time.Since(startTime)
-	service.logger.LogService("ollama", "generate_embedding", duration, map[string]interface{}{
+	service.logger.LogService("ollama", "generate_query_embedding", duration, map[string]interface{}{
 		"text_length":         len(text),
 		"embedding_dimension": len(embedding),
 		"model":               service.config.EmbeddingModel,
 	}, nil)
 
 	return embedding, nil
+}
 
+func (service *OllamaService) GenerateNewsEmbedding(ctx context.Context, text string) ([]float64, error) {
+	if text == "" {
+		return nil, fmt.Errorf("text cannot be empty")
+	}
+	startTime := time.Now()
+
+	service.logger.LogService("ollama", "generate_news_embedding", 0, map[string]interface{}{
+		"text_length": len(text),
+		"model":       service.config.EmbeddingModel,
+	}, nil)
+
+	request := EmbeddingRequest{
+		Model:  service.config.EmbeddingModel,
+		Prompt: text,
+	}
+
+	var embedding []float64
+	var err error
+
+	for attempt := 1; attempt <= service.config.MaxRetries; attempt++ {
+		embedding, err = service.makeEmbeddingRequest(ctx, request)
+		if err == nil {
+			break
+		}
+
+		if attempt < service.config.MaxRetries {
+			backoffDelay := service.config.RetryDelay * time.Duration(attempt)
+
+			service.logger.WithFields(logger.Fields{
+				"attempt":       attempt,
+				"max_retries":   service.config.MaxRetries,
+				"backoff_delay": backoffDelay,
+				"error":         err.Error(),
+			}).Warn("News embedding request failed, retrying")
+
+			select {
+			case <-time.After(backoffDelay):
+				// Continue to next attempt
+			case <-ctx.Done():
+				return nil, models.NewTimeoutError("EMBEDDING_TIMEOUT", "News embedding generation timed out").WithCause(ctx.Err())
+			}
+		}
+	}
+
+	if err != nil {
+		service.logger.LogService("ollama", "generate_news_embedding", time.Since(startTime), map[string]interface{}{
+			"text_length": len(text),
+			"attempts":    service.config.MaxRetries,
+		}, err)
+		return nil, models.WrapExternalError("OLLAMA", err)
+	}
+
+	duration := time.Since(startTime)
+	service.logger.LogService("ollama", "generate_news_embedding", duration, map[string]interface{}{
+		"text_length":         len(text),
+		"embedding_dimension": len(embedding),
+		"model":               service.config.EmbeddingModel,
+	}, nil)
+
+	return embedding, nil
+}
+
+// New: Generate single video embedding
+func (service *OllamaService) GenerateVideoEmbedding(ctx context.Context, text string) ([]float64, error) {
+	if text == "" {
+		return nil, fmt.Errorf("text cannot be empty")
+	}
+	startTime := time.Now()
+
+	service.logger.LogService("ollama", "generate_video_embedding", 0, map[string]interface{}{
+		"text_length": len(text),
+		"model":       service.config.EmbeddingModel,
+	}, nil)
+
+	request := EmbeddingRequest{
+		Model:  service.config.EmbeddingModel,
+		Prompt: text,
+	}
+
+	var embedding []float64
+	var err error
+
+	for attempt := 1; attempt <= service.config.MaxRetries; attempt++ {
+		embedding, err = service.makeEmbeddingRequest(ctx, request)
+		if err == nil {
+			break
+		}
+
+		if attempt < service.config.MaxRetries {
+			backoffDelay := service.config.RetryDelay * time.Duration(attempt)
+
+			service.logger.WithFields(logger.Fields{
+				"attempt":       attempt,
+				"max_retries":   service.config.MaxRetries,
+				"backoff_delay": backoffDelay,
+				"error":         err.Error(),
+			}).Warn("Video embedding request failed, retrying")
+
+			select {
+			case <-time.After(backoffDelay):
+				// Continue to next attempt
+			case <-ctx.Done():
+				return nil, models.NewTimeoutError("EMBEDDING_TIMEOUT", "Video embedding generation timed out").WithCause(ctx.Err())
+			}
+		}
+	}
+
+	if err != nil {
+		service.logger.LogService("ollama", "generate_video_embedding", time.Since(startTime), map[string]interface{}{
+			"text_length": len(text),
+			"attempts":    service.config.MaxRetries,
+		}, err)
+		return nil, models.WrapExternalError("OLLAMA", err)
+	}
+
+	duration := time.Since(startTime)
+	service.logger.LogService("ollama", "generate_video_embedding", duration, map[string]interface{}{
+		"text_length":         len(text),
+		"embedding_dimension": len(embedding),
+		"model":               service.config.EmbeddingModel,
+	}, nil)
+
+	return embedding, nil
 }
 
 func (service *OllamaService) makeEmbeddingRequest(ctx context.Context, request EmbeddingRequest) ([]float64, error) {
@@ -219,7 +338,6 @@ func (service *OllamaService) makeEmbeddingRequest(ctx context.Context, request 
 	}
 
 	return response.Embedding, nil
-
 }
 
 func (service *OllamaService) makeEmbedding(ctx context.Context, texts []string) ([][]float64, error) {
@@ -243,7 +361,7 @@ func (service *OllamaService) makeEmbedding(ctx context.Context, texts []string)
 		go func(index int, content string) {
 			defer wg.Done()
 
-			embedding, err := service.GenerateEmbedding(ctx, content)
+			embedding, err := service.GenerateQueryEmbedding(ctx, content)
 			if err != nil {
 				errChan <- fmt.Errorf("embedding failed at index %d : %w ", index, err)
 				return
@@ -273,10 +391,9 @@ func (service *OllamaService) makeEmbedding(ctx context.Context, texts []string)
 	}, nil)
 
 	return embeddings, nil
-
 }
 
-func (service *OllamaService) BatchGenerateEmbeddings(ctx context.Context, texts []string) ([][]float64, error) {
+func (service *OllamaService) BatchGenerateNewsEmbeddings(ctx context.Context, texts []string) ([][]float64, error) {
 	if len(texts) == 0 {
 		return [][]float64{}, nil
 	}
@@ -284,7 +401,7 @@ func (service *OllamaService) BatchGenerateEmbeddings(ctx context.Context, texts
 	startTime := time.Now()
 	embeddings := make([][]float64, len(texts))
 
-	service.logger.LogService("ollama", "batch_generate_embeddings", 0,
+	service.logger.LogService("ollama", "batch_generate_news_embeddings", 0,
 		map[string]interface{}{
 			"batch_size": len(texts),
 			"model":      service.config.EmbeddingModel,
@@ -298,9 +415,9 @@ func (service *OllamaService) BatchGenerateEmbeddings(ctx context.Context, texts
 		go func(index int, content string) {
 			defer wg.Done()
 
-			embedding, err := service.GenerateEmbedding(ctx, content)
+			embedding, err := service.GenerateNewsEmbedding(ctx, content)
 			if err != nil {
-				errChan <- fmt.Errorf("embedding failed at index %d : %w ", index, err)
+				errChan <- fmt.Errorf("news embedding failed at index %d : %w ", index, err)
 				return
 			}
 			embeddings[index] = embedding
@@ -312,14 +429,67 @@ func (service *OllamaService) BatchGenerateEmbeddings(ctx context.Context, texts
 
 	if len(errChan) > 0 {
 		err := <-errChan
-		service.logger.LogService("ollama", "batch_generate_embeddings", time.Since(startTime), map[string]interface{}{
+		service.logger.LogService("ollama", "batch_generate_news_embeddings", time.Since(startTime), map[string]interface{}{
 			"batch_size": len(texts),
 		}, nil)
 		return nil, err
 	}
 
 	duration := time.Since(startTime)
-	service.logger.LogService("ollama", "batch_generate_embeddings", duration, map[string]interface{}{
+	service.logger.LogService("ollama", "batch_generate_news_embeddings", duration, map[string]interface{}{
+		"batch_size":             len(texts),
+		"avg_time_per_embedding": duration.Milliseconds() / int64(len(texts)),
+		"total_embeddings":       len(embeddings),
+	}, nil)
+
+	return embeddings, nil
+}
+
+// New: Batch generate video embeddings
+func (service *OllamaService) BatchGenerateVideoEmbeddings(ctx context.Context, texts []string) ([][]float64, error) {
+	if len(texts) == 0 {
+		return [][]float64{}, nil
+	}
+
+	startTime := time.Now()
+	embeddings := make([][]float64, len(texts))
+
+	service.logger.LogService("ollama", "batch_generate_video_embeddings", 0,
+		map[string]interface{}{
+			"batch_size": len(texts),
+			"model":      service.config.EmbeddingModel,
+		}, nil)
+
+	var wg sync.WaitGroup
+	errChan := make(chan error, len(texts))
+
+	for i, text := range texts {
+		wg.Add(1)
+		go func(index int, content string) {
+			defer wg.Done()
+
+			embedding, err := service.GenerateVideoEmbedding(ctx, content)
+			if err != nil {
+				errChan <- fmt.Errorf("video embedding failed at index %d : %w ", index, err)
+				return
+			}
+			embeddings[index] = embedding
+		}(i, text)
+	}
+
+	wg.Wait()
+	close(errChan)
+
+	if len(errChan) > 0 {
+		err := <-errChan
+		service.logger.LogService("ollama", "batch_generate_video_embeddings", time.Since(startTime), map[string]interface{}{
+			"batch_size": len(texts),
+		}, nil)
+		return nil, err
+	}
+
+	duration := time.Since(startTime)
+	service.logger.LogService("ollama", "batch_generate_video_embeddings", duration, map[string]interface{}{
 		"batch_size":             len(texts),
 		"avg_time_per_embedding": duration.Milliseconds() / int64(len(texts)),
 		"total_embeddings":       len(embeddings),
@@ -361,7 +531,6 @@ func (service *OllamaService) GetAvailableModels(ctx context.Context) ([]ModelIn
 	}, nil)
 
 	return result.Models, nil
-
 }
 
 func (service *OllamaService) verifyEmbeddingModel(ctx context.Context) error {

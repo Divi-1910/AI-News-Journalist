@@ -16,6 +16,7 @@ type Config struct {
 	Gemini      GeminiConfig  `json:"gemini"`
 	Scraper     ScraperConfig `json:"scraper"`
 	Log         LogConfig     `json:"log"`
+	Youtube     YoutubeConfig `json:"youtube"`
 	Etc         EtcConfig     `json:"etc"`
 }
 
@@ -24,6 +25,10 @@ type HTTPConfig struct {
 	ReadTimeout  time.Duration `json:"read_timeout"`
 	WriteTimeout time.Duration `json:"write_timeout"`
 	IdleTimeout  time.Duration `json:"idle_timeout"`
+}
+
+type YoutubeConfig struct {
+	APIKey string `json:"api_key"`
 }
 
 type RedisConfig struct {
@@ -133,13 +138,16 @@ func Load() (*Config, error) {
 		Etc: EtcConfig{
 			NewsApiKey:         getEnv("NEWS_API_KEY", ""),
 			ChromaDBURL:        getEnv("CHROMA_DB_URL", "http://localhost:9000"),
-			ChromaDBCollection: getEnv("CHROMA_DB_COLLECTION", "anya-news-articles"),
+			ChromaDBCollection: getEnv("CHROMA_DB_COLLECTION", "Infiya-news-articles"),
 		},
 		Scraper: ScraperConfig{
-			UserAgent:      getEnv("SCRAPER_USER_AGENT", "Anya-ai-pipeline/1.0"),
+			UserAgent:      getEnv("SCRAPER_USER_AGENT", "Infiya-ai-pipeline/1.0"),
 			Timeout:        getDuration("SCRAPER_TIMEOUT", 30*time.Second),
 			MaxConcurrency: getInt("SCRAPER_MAX_CONCURRENCY", 5),
 			RetryAttempts:  getInt("SCRAPER_RETRY_ATTEMPTS", 3),
+		},
+		Youtube: YoutubeConfig{
+			APIKey: getEnv("YOUTUBE_API_KEY", ""),
 		},
 	}
 

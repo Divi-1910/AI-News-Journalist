@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# Simple test runner for Anya AI Pipeline
-echo "🚀 Running Anya AI Pipeline Tests"
+# Simple test runner for Infiya AI Pipeline
+echo "🚀 Running Infiya AI Pipeline Tests"
 echo "=================================="
 
 # Set test environment
@@ -27,9 +27,9 @@ echo "✅ Test environment configured"
 
 # Test 1: Build test
 echo "🔨 Testing build..."
-if go build -o /tmp/anya-test ./cmd/server; then
+if go build -o /tmp/Infiya-test ./cmd/server; then
     echo "✅ Build successful"
-    rm -f /tmp/anya-test
+    rm -f /tmp/Infiya-test
 else
     echo "❌ Build failed"
     exit 1

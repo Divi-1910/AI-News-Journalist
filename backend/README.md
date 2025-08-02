@@ -1,6 +1,6 @@
-# Anya Backend API
+# Infiya Backend API
 
-FastAPI-based backend for the Anya AI News Journalist application.
+FastAPI-based backend for the Infiya AI News Journalist application.
 
 ## Setup
 

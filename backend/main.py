@@ -18,7 +18,7 @@ logging.basicConfig(
     format=settings.LOG_FORMAT,
     handlers=[
         logging.StreamHandler(),
-        logging.FileHandler("anya_api.log") if settings.is_production() else logging.NullHandler()
+        logging.FileHandler("Infiya_api.log") if settings.is_production() else logging.NullHandler()
     ]
 )
 
@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Manage application startup and shutdown"""
-    logger.info("🚀 Starting Anya API...")
+    logger.info("🚀 Starting Infiya API...")
     
     try:
         await mongodb.connect()
@@ -39,7 +39,7 @@ async def lifespan(app: FastAPI):
         logger.error(f"❌ Startup failed: {e}")
         raise
     finally:
-        logger.info("🔄 Shutting down Anya API...")
+        logger.info("🔄 Shutting down Infiya API...")
         await mongodb.disconnect()
         logger.info("👋 Application shutdown completed")
 
@@ -136,7 +136,7 @@ app.include_router(
 async def root() -> Dict[str, Any]:
     """Root endpoint - API information"""
     return {
-        "message": "Anya AI News API says welcome! 🤖📰",
+        "message": "Infiya AI News API says welcome! 🤖📰",
         "version": settings.APP_VERSION,
         "description": settings.APP_DESCRIPTION,
         "docs_url": "/docs" if settings.is_development() else None,
@@ -152,7 +152,7 @@ async def health_check() -> Dict[str, Any]:
         
         return {
             "status": "healthy" if db_health["status"] == "healthy" else "degraded",
-            "service": "anya-api-gateway",
+            "service": "Infiya-api-gateway",
             "version": settings.APP_VERSION,
             "environment": settings.ENVIRONMENT,
             "database": db_health,
@@ -162,7 +162,7 @@ async def health_check() -> Dict[str, Any]:
         logger.error(f"❌ Health check failed: {e}")
         return {
             "status": "unhealthy",
-            "service": "anya-api-gateway",
+            "service": "Infiya-api-gateway",
             "error": str(e),
             "timestamp": time.time()
         }

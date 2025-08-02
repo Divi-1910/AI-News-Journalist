@@ -6,7 +6,7 @@ const Loading = () => {
       <div className="text-center">
         <div className="w-16 h-16 border-4 border-purple-400 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
         <p className="text-white text-lg">
-          Wait a Sec , Anya is getting ready for you...{" "}
+          Wait a Sec , Infiya is getting ready for you...{" "}
         </p>
       </div>
     </div>

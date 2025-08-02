@@ -341,6 +341,15 @@ class ChatService:
                 final_response = update_data.get("message", "")
                 if final_response and final_response != "Workflow Completed successfully":
                     sse_update["final_response"] = final_response
+                    
+                # Include workflow stats in the SSE message
+                try:
+                    from services.workflow_stats_service import WorkflowStatsService
+                    workflow_stats = await WorkflowStatsService.get_workflow_stats_from_redis(workflow_id)
+                    if workflow_stats:
+                        sse_update["workflow_stats"] = workflow_stats
+                except Exception as e:
+                    logger.error(f"Error getting workflow stats for SSE: {str(e)}")
             
             elif (update_data.get("type") == "workflow_error" or 
                   sse_update["agent_name"] == "workflow_error"):

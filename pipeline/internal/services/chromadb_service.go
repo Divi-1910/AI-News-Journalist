@@ -1,9 +1,9 @@
 package services
 
 import (
-	"anya-ai-pipeline/internal/config"
-	"anya-ai-pipeline/internal/models"
-	"anya-ai-pipeline/internal/pkg/logger"
+	"Infiya-ai-pipeline/internal/config"
+	"Infiya-ai-pipeline/internal/models"
+	"Infiya-ai-pipeline/internal/pkg/logger"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 )
 
@@ -64,11 +65,18 @@ type SearchResult struct {
 	Distance   float64            `json:"distance"`
 }
 
+type VideoSearchResult struct {
+	VideoDocument models.YouTubeVideo `json:"video_document"`
+	Similarity    float64             `json:"similarity"`
+	Distance      float64             `json:"distance"`
+}
+
 const (
-	NewsCollectionName = "news_articles"
-	DefaultTopK        = 8
-	DefaultTenant      = "default_tenant"
-	DefaultDatabase    = "default_database"
+	NewsCollectionName   = "news_articles"
+	VideosCollectionName = "video_articles"
+	DefaultTopK          = 8
+	DefaultTenant        = "default_tenant"
+	DefaultDatabase      = "default_database"
 )
 
 func NewChromaDBService(config config.EtcConfig, log *logger.Logger) (*ChromaDBService, error) {
@@ -155,10 +163,20 @@ func (service *ChromaDBService) createOrGetCollection(ctx context.Context, colle
 		return nil
 	}
 
+	var description string
+	switch collectionName {
+	case NewsCollectionName:
+		description = "News Articles Collection"
+	case VideosCollectionName:
+		description = "Video Articles Collection"
+	default:
+		description = "Generic collection"
+	}
+
 	newCollection := Collection{
 		ID: collectionName,
 		Metadata: map[string]string{
-			"description": "News Articles for semantic search",
+			"description": description,
 			"created_at":  time.Now().Format(time.RFC3339),
 		},
 	}
@@ -168,6 +186,268 @@ func (service *ChromaDBService) createOrGetCollection(ctx context.Context, colle
 	}
 
 	service.logger.Info("Created new collection", "collection", newCollection)
+	return nil
+
+}
+
+func (service *ChromaDBService) StoreVideos(ctx context.Context, videos []models.YouTubeVideo, embeddings [][]float64) error {
+	if len(videos) != len(embeddings) {
+		return fmt.Errorf("mismatch between videos (%d) and embeddings (%d)", len(videos), len(embeddings))
+	}
+
+	if len(videos) == 0 {
+		return fmt.Errorf("no videos to store")
+	}
+
+	startTime := time.Now()
+
+	service.logger.LogService("chromadb", "store_videos", 0, map[string]interface{}{
+		"videos_count": len(videos),
+		"collection":   VideosCollectionName,
+	}, nil)
+
+	documents := make([]string, len(videos))
+	metadatas := make([]map[string]interface{}, len(videos))
+	ids := make([]string, len(videos))
+
+	for i, video := range videos {
+		documents[i] = fmt.Sprintf("%s - %s", video.Title, video.Description)
+		videoID := video.ID
+		if videoID == "" {
+			videoID = fmt.Sprintf("video_%d_%d", time.Now().Unix(), i)
+		}
+
+		metadatas[i] = map[string]interface{}{
+			"id":              videoID,
+			"title":           video.Title,
+			"description":     video.Description,
+			"channel_id":      video.ChannelID,
+			"channel":         video.Channel,
+			"thumbnail_url":   video.ThumbnailURL,
+			"published_at":    video.PublishedAt.Format(time.RFC3339),
+			"url":             video.URL,
+			"tags":            strings.Join(video.Tags, ","),
+			"view_count":      video.ViewCount,
+			"like_count":      video.LikeCount,
+			"comment_count":   video.CommentCount,
+			"duration":        video.Duration,
+			"source_type":     video.SourceType,
+			"relevancy_score": video.RelevancyScore,
+			"stored_at":       time.Now().Format(time.RFC3339),
+		}
+
+		ids[i] = videoID
+
+	}
+
+	addRequest := AddRequest{
+		Documents:  documents,
+		Metadatas:  metadatas,
+		IDs:        ids,
+		Embeddings: embeddings,
+	}
+
+	if err := service.addToCollection(ctx, VideosCollectionName, addRequest); err != nil {
+		service.logger.LogService("chromadb", "store_videos", time.Since(startTime),
+			map[string]interface{}{
+				"videos_count": len(videos),
+			}, err)
+		return fmt.Errorf("Failed to store videos: %w", err)
+	}
+
+	service.logger.LogService("chromadb", "store_videos", time.Since(startTime), map[string]interface{}{
+		"videos_count": len(videos),
+		"collection":   VideosCollectionName,
+	}, nil)
+
+	return nil
+
+}
+
+func (service *ChromaDBService) SearchSimilarVideos(ctx context.Context, queryEmbedding []float64, topK int,
+	filters map[string]interface{}) ([]VideoSearchResult, error) {
+	if len(queryEmbedding) == 0 {
+		return nil, fmt.Errorf("queryEmbedding is empty")
+	}
+
+	if topK <= 0 {
+		topK = DefaultTopK
+	}
+
+	startTime := time.Now()
+
+	service.logger.LogService("chromadb", "search_similar_videos", 0, map[string]interface{}{
+		"top_k":       topK,
+		"has_filters": len(filters) > 0,
+		"collection":  VideosCollectionName,
+	}, nil)
+
+	queryRequest := QueryRequest{
+		QueryEmbeddings: [][]float64{queryEmbedding},
+		NResults:        topK,
+		Include:         []string{"documents", "metadatas", "distances"},
+	}
+
+	if len(filters) > 0 {
+		queryRequest.Where = filters
+	}
+
+	queryResponse, err := service.queryCollection(ctx, VideosCollectionName, queryRequest)
+	if err != nil {
+		service.logger.LogService("chromadb", "search_similar_videos", time.Since(startTime), map[string]interface{}{
+			"topK": topK,
+		}, err)
+		return nil, fmt.Errorf("video search query failed: %w", err)
+	}
+
+	results := service.convertToVideoSearchResults(queryResponse)
+
+	service.logger.LogService("chromadb", "search_similar_videos", time.Since(startTime), map[string]interface{}{
+		"top_k":         topK,
+		"results_count": len(results),
+		"collection":    VideosCollectionName,
+	}, nil)
+
+	return results, nil
+
+}
+
+func (service *ChromaDBService) convertToVideoSearchResults(queryResponse *QueryResponse) []VideoSearchResult {
+	var results []VideoSearchResult
+
+	if len(queryResponse.IDs) == 0 || len(queryResponse.IDs[0]) == 0 {
+		return results
+	}
+
+	ids := queryResponse.IDs[0]
+	documents := queryResponse.Documents[0]
+	distances := queryResponse.Distances[0]
+	metadatas := queryResponse.Metadatas[0]
+
+	for i := 0; i < len(ids); i++ {
+		metadata := metadatas[i]
+
+		publishedAt := time.Now()
+		if publishedAtStr, ok := metadata["published_at"].(string); ok {
+			if parsed, err := time.Parse(time.RFC3339, publishedAtStr); err == nil {
+				publishedAt = parsed
+			}
+		}
+
+		relevancyScore := 0.0
+		if score, ok := metadata["relevancy_score"].(float64); ok {
+			relevancyScore = score
+		}
+
+		// Parse tags from comma-separated string
+		var tags []string
+		if tagsStr, ok := metadata["tags"].(string); ok && tagsStr != "" {
+			tags = strings.Split(tagsStr, ",")
+		}
+
+		video := models.YouTubeVideo{
+			ID:             getString(metadata, "id"),
+			Title:          getString(metadata, "title"),
+			Description:    documents[i],
+			ChannelID:      getString(metadata, "channel_id"),
+			Channel:        getString(metadata, "channel"),
+			ThumbnailURL:   getString(metadata, "thumbnail_url"),
+			PublishedAt:    publishedAt,
+			URL:            getString(metadata, "url"),
+			Tags:           tags,
+			ViewCount:      getString(metadata, "view_count"),
+			LikeCount:      getString(metadata, "like_count"),
+			CommentCount:   getString(metadata, "comment_count"),
+			Duration:       getString(metadata, "duration"),
+			SourceType:     getString(metadata, "source_type"),
+			RelevancyScore: relevancyScore,
+		}
+
+		similarity := 1.0 - distances[i]
+		if similarity < 0 {
+			similarity = 0
+		}
+
+		results = append(results, VideoSearchResult{
+			VideoDocument: video,
+			Similarity:    similarity,
+			Distance:      distances[i],
+		})
+
+	}
+
+	return results
+}
+
+func (service *ChromaDBService) SearchVideosByChannel(ctx context.Context, queryEmbedding []float64, channel string, topK int) ([]VideoSearchResult, error) {
+	filters := map[string]interface{}{
+		"channel": channel,
+	}
+	return service.SearchSimilarVideos(ctx, queryEmbedding, topK, filters)
+}
+
+func (service *ChromaDBService) SearchRecentVideos(ctx context.Context, queryEmbedding []float64, hoursBack int, topK int) ([]VideoSearchResult, error) {
+	cutoffTime := time.Now().Add(-time.Duration(hoursBack) * time.Hour)
+	filters := map[string]interface{}{
+		"published_at": map[string]interface{}{
+			"$gte": cutoffTime.Format(time.RFC3339),
+		},
+	}
+	return service.SearchSimilarVideos(ctx, queryEmbedding, topK, filters)
+}
+
+func (service *ChromaDBService) DeleteVideos(ctx context.Context, videoIDs []string) error {
+	if len(videoIDs) == 0 {
+		return fmt.Errorf("no videos to delete")
+	}
+
+	startTime := time.Now()
+
+	service.logger.LogService("chromadb", "delete_videos", 0, map[string]interface{}{
+		"videos_count": len(videoIDs),
+		"collection":   VideosCollectionName,
+	}, nil)
+
+	collectionID, err := service.getCollectionID(ctx, VideosCollectionName)
+	if err != nil {
+		return fmt.Errorf("Failed to get collection ID: %w", err)
+	}
+
+	url := fmt.Sprintf("%s/api/v2/tenants/%s/databases/%s/collections/%s/delete", service.baseURL, service.tenant, service.database, collectionID)
+
+	deleteRequest := map[string]interface{}{
+		"ids": videoIDs,
+	}
+
+	jsonData, err := json.Marshal(deleteRequest)
+	if err != nil {
+		return fmt.Errorf("failed to marshal delete request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, url, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return fmt.Errorf("Failed to create delete videos request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := service.client.Do(req)
+	if err != nil {
+		service.logger.LogService("chromadb", "delete_videos", time.Since(startTime), map[string]interface{}{
+			"videos_count": len(videoIDs),
+		}, err)
+		return fmt.Errorf("Failed to delete videos: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("delete failed with status: %d", resp.StatusCode)
+	}
+
+	service.logger.LogService("chromadb", "delete_videos", time.Since(startTime), map[string]interface{}{
+		"videos_count": len(videoIDs),
+		"collection":   VideosCollectionName,
+	}, nil)
+
 	return nil
 
 }

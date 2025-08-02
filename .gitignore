@@ -235,7 +235,7 @@ docker-logs/
 *.log
 logs/
 log/
-anya_api.log
+Infiya_api.log
 *.log.*
 
 # Temporary files
@@ -308,8 +308,8 @@ local.json
 *.p12
 *.pfx
 
-anya_*.log
-anya_debug.json
+Infiya_*.log
+Infiya_debug.json
 
 
 # Vector database files
