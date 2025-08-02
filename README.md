@@ -42,7 +42,6 @@ Agent Pipeline Architecture : <img width="1195" height="719" alt="Image" src="ht
 - **Jotai** - State Management
 - **Vite** - Build tool and dev server
 - **Tailwind CSS** - Utility-first CSS framework
-- **Zustand** - State management
 - **Axios** - HTTP client
 
 ### Pipeline
